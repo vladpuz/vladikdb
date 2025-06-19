@@ -1,6 +1,6 @@
 {
   "name": "vladikdb",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Simple JSON database for node and browser",
   "repository": {

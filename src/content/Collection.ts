@@ -150,19 +150,23 @@ export class Collection<
     document: Document,
   ): void {
     const currentDocument = this.documentsMap.get(primaryKey)
+
     if (currentDocument == null) {
       throw new Error(`Document with primary key "${String(primaryKey)}" not found`)
     }
 
     const newPrimaryKey = document[this.primaryKeyField]
 
-    const newDocument = this.documentsMap.get(newPrimaryKey)
-    if (newDocument != null) {
-      throw new Error(`Primary key "${String(primaryKey)}" already exists`)
-    }
+    if (newPrimaryKey !== primaryKey) {
+      const newDocument = this.documentsMap.get(newPrimaryKey)
 
-    this.documentsMap.delete(primaryKey)
-    this.documentsMap.set(newPrimaryKey, currentDocument)
+      if (newDocument != null) {
+        throw new Error(`Primary key "${String(primaryKey)}" already exists`)
+      }
+
+      this.documentsMap.delete(primaryKey)
+      this.documentsMap.set(newPrimaryKey, currentDocument)
+    }
 
     this.indexedFieldsMap.forEach((map, indexedField) => {
       const indexedFieldValue = currentDocument[indexedField]
