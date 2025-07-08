@@ -14,7 +14,7 @@ export interface Adapter<T> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 class VladikDB<ContentObject extends Record<string, Content<any>>> {
   public content: ContentObject
-  public contentArray: Array<Content<unknown>>
+  public contentArray: Content<unknown>[]
 
   public constructor(content: ContentObject) {
     this.content = content

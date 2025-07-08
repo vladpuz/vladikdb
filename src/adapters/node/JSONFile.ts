@@ -16,8 +16,8 @@ export class JSONFile<T> implements Adapter<T> {
       return null
     }
 
-    const json: T = JSON.parse(data)
-    return json
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    return JSON.parse(data) as T
   }
 
   public async write(data: T): Promise<void> {

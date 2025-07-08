@@ -5,7 +5,7 @@ export class Collection<
 > implements Content<Document[]> {
   public adapter: Adapter<Document[]>
   public primaryKeyField: keyof Document
-  public indexedFields: Array<keyof Document>
+  public indexedFields: (keyof Document)[]
 
   private documents: Document[] = []
 
@@ -24,12 +24,14 @@ export class Collection<
   public constructor(
     adapter: Adapter<Document[]>,
     primaryKeyField: keyof Document,
-    indexedFields: Array<keyof Document> = [],
+    indexedFields: (keyof Document)[] = [],
   ) {
     const indexedFieldsSet = new Set(indexedFields)
 
     if (indexedFieldsSet.has(primaryKeyField)) {
-      throw new Error(`Primary key "${String(primaryKeyField)}" cannot be indexed`)
+      throw new Error(
+        `Primary key field "${String(primaryKeyField)}" cannot be indexed`,
+      )
     }
 
     this.adapter = adapter
@@ -105,7 +107,9 @@ export class Collection<
     const currentDocument = this.documentsMap.get(primaryKey)
 
     if (currentDocument != null) {
-      throw new Error(`Primary key "${String(primaryKey)}" already exists`)
+      throw new Error(
+        `Primary key "${String(primaryKey)}" already exists`,
+      )
     }
 
     this.documents.push(document)
@@ -133,7 +137,9 @@ export class Collection<
     const map = this.indexedFieldsMap.get(field)
 
     if (map == null) {
-      throw new Error(`Index for field "${String(field)}" not found`)
+      throw new Error(
+        `Index for field "${String(field)}" not found`,
+      )
     }
 
     return map.get(value) ?? []
@@ -152,20 +158,17 @@ export class Collection<
     const currentDocument = this.documentsMap.get(primaryKey)
 
     if (currentDocument == null) {
-      throw new Error(`Document with primary key "${String(primaryKey)}" not found`)
+      throw new Error(
+        `Document with primary key "${String(primaryKey)}" not found`,
+      )
     }
 
     const newPrimaryKey = document[this.primaryKeyField]
 
     if (newPrimaryKey !== primaryKey) {
-      const newDocument = this.documentsMap.get(newPrimaryKey)
-
-      if (newDocument != null) {
-        throw new Error(`Primary key "${String(primaryKey)}" already exists`)
-      }
-
-      this.documentsMap.delete(primaryKey)
-      this.documentsMap.set(newPrimaryKey, currentDocument)
+      throw new Error(
+        `Primary key "${String(primaryKey)}" cannot be updated`,
+      )
     }
 
     this.indexedFieldsMap.forEach((map, indexedField) => {
@@ -190,7 +193,7 @@ export class Collection<
   }
 
   public deleteByPrimaryKey(
-    primaryKey: Document[keyof Document] | Array<Document[keyof Document]>,
+    primaryKey: Document[keyof Document] | Document[keyof Document][],
   ): void {
     const primaryKeys = new Set(
       Array.isArray(primaryKey) ? primaryKey : [primaryKey],
