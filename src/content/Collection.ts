@@ -2,15 +2,14 @@ import type { Adapter, Content } from '../core/VladikDB.js'
 
 export class Collection<
   Document extends object,
+  PrimaryKey extends keyof Document,
 > implements Content<Document[]> {
   public adapter: Adapter<Document[]>
-  public primaryKeyField: keyof Document
-  public indexedFields: (keyof Document)[]
-
-  private documents: Document[] = []
+  public readonly primaryKeyField: PrimaryKey
+  public readonly indexedFields: (keyof Document)[]
 
   private documentsMap = new Map<
-    Document[keyof Document],
+    Document[PrimaryKey],
     Document
   >()
 
@@ -23,7 +22,7 @@ export class Collection<
 
   public constructor(
     adapter: Adapter<Document[]>,
-    primaryKeyField: keyof Document,
+    primaryKeyField: PrimaryKey,
     indexedFields: (keyof Document)[] = [],
   ) {
     const indexedFieldsSet = new Set(indexedFields)
@@ -39,7 +38,7 @@ export class Collection<
     this.indexedFields = [...indexedFieldsSet]
   }
 
-  private syncIndexes(): void {
+  private syncIndexes(documents: Iterable<Document>): void {
     this.documentsMap.clear()
     this.indexedFieldsMap.clear()
 
@@ -47,7 +46,7 @@ export class Collection<
       this.indexedFieldsMap.set(indexedField, new Map())
     })
 
-    this.documents.forEach((document) => {
+    for (const document of documents) {
       const primaryKey = document[this.primaryKeyField]
       this.documentsMap.set(primaryKey, document)
 
@@ -62,7 +61,7 @@ export class Collection<
 
         documents.push(document)
       })
-    })
+    }
   }
 
   public async init(): Promise<void> {
@@ -70,7 +69,6 @@ export class Collection<
   }
 
   public async clear(): Promise<void> {
-    this.documents = []
     this.documentsMap.clear()
     this.indexedFieldsMap.clear()
 
@@ -78,8 +76,8 @@ export class Collection<
   }
 
   public async read(): Promise<void> {
-    this.documents = await this.adapter.read() ?? []
-    this.syncIndexes()
+    const documents = await this.adapter.read() ?? []
+    this.syncIndexes(documents)
   }
 
   public async write(): Promise<void> {
@@ -88,17 +86,15 @@ export class Collection<
     }
 
     this.hasChanges = false
-    await this.adapter.write(this.documents)
+    await this.adapter.write([...this.documentsMap.values()])
   }
 
-  public getDocuments(): Document[] {
-    return this.documents
+  public getDocuments(): Iterable<Document> {
+    return this.documentsMap.values()
   }
 
-  public setDocuments(documents: Document[]): void {
-    this.documents = documents
-
-    this.syncIndexes()
+  public setDocuments(documents: Iterable<Document>): void {
+    this.syncIndexes(documents)
     this.hasChanges = true
   }
 
@@ -112,7 +108,6 @@ export class Collection<
       )
     }
 
-    this.documents.push(document)
     this.documentsMap.set(primaryKey, document)
 
     this.indexedFieldsMap.forEach((map, indexedField) => {
@@ -146,13 +141,13 @@ export class Collection<
   }
 
   public findByPrimaryKey(
-    primaryKey: Document[keyof Document],
+    primaryKey: Document[PrimaryKey],
   ): Document | undefined {
     return this.documentsMap.get(primaryKey)
   }
 
   public updateByPrimaryKey(
-    primaryKey: Document[keyof Document],
+    primaryKey: Document[PrimaryKey],
     document: Document,
   ): void {
     const currentDocument = this.documentsMap.get(primaryKey)
@@ -193,32 +188,21 @@ export class Collection<
   }
 
   public deleteByPrimaryKey(
-    primaryKey: Document[keyof Document] | Document[keyof Document][],
+    primaryKey: Document[PrimaryKey],
   ): void {
-    const primaryKeys = new Set(
-      Array.isArray(primaryKey) ? primaryKey : [primaryKey],
-    )
+    const document = this.documentsMap.get(primaryKey)
 
-    if (primaryKeys.size === 0) {
-      return
+    if (document == null) {
+      throw new Error(
+        `Document with primary key "${String(primaryKey)}" not found`,
+      )
     }
 
-    this.documents = this.documents.filter((document) => {
-      const documentPrimaryKey = document[this.primaryKeyField]
-      const shouldKeep = !primaryKeys.has(documentPrimaryKey)
+    this.documentsMap.delete(primaryKey)
 
-      if (!shouldKeep) {
-        this.documentsMap.delete(documentPrimaryKey)
-
-        this.indexedFieldsMap.forEach((map, indexedField) => {
-          const indexedFieldValue = document[indexedField]
-          map.delete(indexedFieldValue)
-        })
-
-        return false
-      }
-
-      return true
+    this.indexedFieldsMap.forEach((map, indexedField) => {
+      const indexedFieldValue = document[indexedField]
+      map.delete(indexedFieldValue)
     })
 
     this.hasChanges = true

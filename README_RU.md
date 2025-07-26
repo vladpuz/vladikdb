@@ -38,63 +38,65 @@ interface Post {
   title: string
 }
 
-// For node
-const databasePath = 'database'
-const databasePostsPath = path.join(databasePath, 'posts.json')
+// Node
+const databasePostsPath = path.join('database', 'posts.json')
 const adapter = new JSONFile<Post[]>(databasePostsPath)
 
-// For browser
+// Browser
 // const databasePostsKey = 'posts'
 // const adapter = new LocalStorage<Post[]>(databasePostsKey)
 
 const database = new VladikDB({
-  posts: new Collection<Post>(adapter, 'id', ['userId']),
+  posts: new Collection(adapter, 'id', ['userId']),
 })
 
-// Init O(n)
+// Init
 await database.init()
 
-// Create O(1)
+// Create
 database.content.posts.create({
   id: 1,
   userId: 2,
   title: 'vladikdb is awesome',
 })
 
-// Read by userId O(1)
+// Read by userId
 const post1 = database.content.posts.findByIndexedField('userId', 2)
 console.log(post1)
 
-// Read by id O(1)
+// Read by id
 const post2 = database.content.posts.findByPrimaryKey(1)
 console.log(post2)
 
-// Update O(1)
+// Update
 database.content.posts.updateByPrimaryKey(1, {
   id: 1,
   userId: 2,
   title: 'new title',
 })
 
-// Delete O(n)
+// Delete
 database.content.posts.deleteByPrimaryKey(1)
-// or
-database.content.posts.deleteByPrimaryKey([1, 2, 3])
 
-// Get documents O(1)
+// Get documents
 const posts = database.content.posts.getDocuments()
 
-// Change documents O(n)
-const newDocuments = posts.map((post) => {
-  return { ...post, title: 'changed title' }
-})
+// Change documents
+const changedPosts: Post[] = []
 
-// Set documents O(n)
-database.content.posts.setDocuments(newDocuments)
+for (const post of posts) {
+  changedPosts.push({
+    ...post,
+    title: 'changed title',
+  })
+}
 
-// Write O(n)
+// Set documents
+database.content.posts.setDocuments(changedPosts)
+
+// Write posts
 await database.content.posts.write()
-// or
+// Write all database
 await database.write()
 ```
 
@@ -102,10 +104,10 @@ await database.write()
 
 База данных предоставляет два встроенных типа контента:
 
-- Collection (object[]) - коллекция документов предназначенная для быстрой
+- Collection (`object[]`) - коллекция документов предназначенная для быстрой
   работы с документами по первичным ключам и быстрого поиска по индексированным
   полям.
-- Single (object) - предназначен для одиночных объектов, например конфигурация
+- Single (`object`) - предназначен для одиночных объектов, например конфигурация
   приложения.
 
 Пример использования Single:
@@ -203,15 +205,21 @@ https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
 ### VladikDB
 
-#### new VladikDB(content: ContentObject)
+#### new VladikDB(content)
+
+content: `ContentObject`
 
 Создает экземпляр базы данных для управления контентом.
 
-#### database.content - ContentObject
+#### database.content
+
+Type: `ContentObject`
 
 Объект контента переданный при создании экземпляра.
 
-#### database.contentArray - Content[]
+#### database.contentArray
+
+Type: `Content[]`
 
 Массив контента переданного при создании экземпляра.
 
@@ -233,70 +241,117 @@ https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
 ### Collection
 
-#### new Collection(adapter: Adapter, primaryKeyField: string, indexedFields?: string[])
+#### new Collection(adapter, primaryKeyField, indexedFields?)
 
 Создает экземпляр коллекции.
 
-- adapter - Любой адаптер.
-- primaryKeyField - Поле документа используемое в качестве первичного ключа.
-  Указанное поле должно содержать только примитивные типы данных.
-- indexedFields (опционально) - Индексируемые поля документа. Не должен
-  содержать primaryKeyField.
+- adapter (`Adapter`) - Любой адаптер.
+- primaryKeyField (`keyof Document`) - Поле документа используемое в качестве
+  первичного ключа. Указанное поле должно содержать только примитивные типы
+  данных.
+- indexedFields? (`(keyof Document)[]`) - Индексируемые поля документа. Не
+  должен содержать primaryKeyField.
 
-#### collection.adapter - Adapter
+#### collection.adapter
+
+Type: `Adapter`
 
 Адаптер переданный при создании экземпляра.
 
-#### collection.primaryKeyField - string
+#### collection.primaryKeyField
+
+Type: `keyof Document`
 
 Поле первичного ключа переданное при создании экземпляра.
 
-#### collection.indexedFields - string[]
+#### collection.indexedFields
+
+Type: `(keyof Document)[]`
 
 Индексируемые поля переданные при создании экземпляра.
 
 #### collection.init()
 
+Complexity: `O(n)`
+
 Инициализирует коллекцию.
 
 #### collection.clear()
+
+Complexity: `O(1)`
 
 Очищает коллекцию.
 
 #### collection.read()
 
+Complexity: `O(n)`
+
 Читает данные через адаптер коллекции.
 
 #### collection.write()
 
+Complexity: `O(n)`
+
 Записывает данные через адаптер коллекции.
 
-#### collection.getDocuments(): Document[]
+#### collection.getDocuments()
 
-Получает массив документов коллекции.
+Complexity: `O(1)`
 
-#### collection.setDocuments(documents: Document[]): void
+Return: `Document[]`
 
-Устанавливает массив документов коллекции.
+Получает документы коллекции.
 
-#### collection.create(document: Document): void
+#### collection.setDocuments(documents)
+
+Complexity: `O(n)`
+
+documents: `Document[]`
+
+Устанавливает документы коллекции.
+
+#### collection.create(document)
+
+Complexity: `O(1)`
+
+document: `Document`
 
 Создание документа.
 
 Выдает ошибку если документ с таким первичным ключом уже существует.
 
-#### collection.findByIndexedField(field, value): Document | undefined
+#### collection.findByIndexedField(field, value):
+
+Complexity: `O(1)`
+
+Return: `Document | undefined`
+
+field: `keyof Document`
+
+value: `Document[keyof Document]`
 
 Поиск документа по индексируемому полю.
 
 Выдает ошибку если параметр field не был указан в indexedFields при создании
 экземпляра.
 
-#### collection.findByPrimaryKey(primaryKey: string): Document | undefined
+#### collection.findByPrimaryKey(primaryKey)
+
+Complexity: `O(1)`
+
+Return: `Document | undefined`
+
+primaryKey: `keyof Document`
 
 Поиск документа по первичному ключу.
 
-#### collection.updateByPrimaryKey(primaryKey: string, document: Document) : void
+#### collection.updateByPrimaryKey(primaryKey, document)
+
+Complexity: `O(1)`
+
+primaryKey: `keyof Document`
+
+document: `Document`
 
 Обновление документа по первичному ключу.
 
@@ -305,24 +360,34 @@ https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 Выдает ошибку при попытке обновления первичного ключа документа. Вместо этого
 удалите старый документ и создайте новый.
 
-#### collection.deleteByPrimaryKey(primaryKey: string | string[]) : void
+#### collection.deleteByPrimaryKey(primaryKey)
+
+Complexity: `O(1)`
+
+primaryKey: `keyof Document`
 
 Удаление документа(ов) по первичному ключу.
 
+Выдает ошибку если документа с первичным ключом primaryKey не существует.
+
 ### Single
 
-#### new Single(adapter: Adapter, defaultData: Data)
+#### new Single(adapter, defaultData)
 
 Создает экземпляр сингла.
 
-- adapter - Любой адаптер.
-- defaultData - Данные по умолчанию.
+- adapter (`Adapter`) - Любой адаптер.
+- defaultData (`Data`) - Данные по умолчанию.
 
-#### single.adapter - Adapter
+#### single.adapter
+
+Type: `Adapter`
 
 Адаптер переданный при создании экземпляра.
 
-#### single.defaultData - Data
+#### single.defaultData
+
+Type: `Data`
 
 Данные по умолчанию переданные при создании экземпляра.
 
@@ -342,11 +407,15 @@ https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
 Записывает данные через адаптер сингла.
 
-#### single.getData(): Data
+#### single.getData()
+
+Return: `Data`
 
 Получает данные сингла.
 
-#### single.setData(data: Data): void
+#### single.setData(data)
+
+data: `Data`
 
 Устанавливает данные сингла.
 
@@ -381,8 +450,8 @@ database.content.posts.create({
 При работе с большим количеством данных вы столкнетесь с проблемами
 производительности. Это происходит потому, что каждый вызов `write()`
 сериализует данные через `JSON.stringify`, таким образом даже при изменении
-всего одного документа, формат данных JSON вынужден преобразовать весь массив в
-строку перед записью.
+всего одного документа, формат данных JSON вынужден преобразовать все документы
+в строку перед записью.
 
 Это можно смягчить если накапливать изменения и выполнять `write()` по интервалу
 и перед выходом из приложения, чтобы избежать потери данных:

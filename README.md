@@ -38,63 +38,65 @@ interface Post {
   title: string
 }
 
-// For node
-const databasePath = 'database'
-const databasePostsPath = path.join(databasePath, 'posts.json')
+// Node
+const databasePostsPath = path.join('database', 'posts.json')
 const adapter = new JSONFile<Post[]>(databasePostsPath)
 
-// For browser
+// Browser
 // const databasePostsKey = 'posts'
 // const adapter = new LocalStorage<Post[]>(databasePostsKey)
 
 const database = new VladikDB({
-  posts: new Collection<Post>(adapter, 'id', ['userId']),
+  posts: new Collection(adapter, 'id', ['userId']),
 })
 
-// Init O(n)
+// Init
 await database.init()
 
-// Create O(1)
+// Create
 database.content.posts.create({
   id: 1,
   userId: 2,
   title: 'vladikdb is awesome',
 })
 
-// Read by userId O(1)
+// Read by userId
 const post1 = database.content.posts.findByIndexedField('userId', 2)
 console.log(post1)
 
-// Read by id O(1)
+// Read by id
 const post2 = database.content.posts.findByPrimaryKey(1)
 console.log(post2)
 
-// Update O(1)
+// Update
 database.content.posts.updateByPrimaryKey(1, {
   id: 1,
   userId: 2,
   title: 'new title',
 })
 
-// Delete O(n)
+// Delete
 database.content.posts.deleteByPrimaryKey(1)
-// or
-database.content.posts.deleteByPrimaryKey([1, 2, 3])
 
-// Get documents O(1)
+// Get documents
 const posts = database.content.posts.getDocuments()
 
-// Change documents O(n)
-const newDocuments = posts.map((post) => {
-  return { ...post, title: 'changed title' }
-})
+// Change documents
+const changedPosts: Post[] = []
 
-// Set documents O(n)
-database.content.posts.setDocuments(newDocuments)
+for (const post of posts) {
+  changedPosts.push({
+    ...post,
+    title: 'changed title',
+  })
+}
 
-// Write O(n)
+// Set documents
+database.content.posts.setDocuments(changedPosts)
+
+// Write posts
 await database.content.posts.write()
-// or
+// Write all database
 await database.write()
 ```
 
@@ -102,9 +104,9 @@ await database.write()
 
 The database provides two built-in content types:
 
-- Collection (object[]) - a collection of documents designed for fast work with
-  documents by primary keys and fast search by indexed fields.
-- Single (object) - designed for single objects, such as application
+- Collection (`object[]`) - a collection of documents designed for fast
+  operations with documents by primary keys and fast search by indexed fields.
+- Single (`object`) - designed for single objects, such as application
   configuration.
 
 Example usage of Single:
@@ -146,7 +148,7 @@ console.log(data)
 await database.write()
 ```
 
-### Creating a Custom Content Type
+### Creating Custom Content Type
 
 You can create a new content type for optimal, fast work with any data
 structure.
@@ -181,7 +183,7 @@ For browser:
 - SessionStorage
 - LocalStorage
 
-### Creating a Custom Adapter
+### Creating Custom Adapter
 
 You can create a new adapter for storing data in any format and location, such
 as YAML, remote storage, data encryption, etc.
@@ -202,126 +204,188 @@ https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
 ### VladikDB
 
-#### new VladikDB(content: ContentObject)
+#### new VladikDB(content)
+
+content: `ContentObject`
 
 Creates a database instance for managing content.
 
-#### database.content - ContentObject
+#### database.content
+
+Type: `ContentObject`
 
 The content object passed when creating the instance.
 
-#### database.contentArray - Content[]
+#### database.contentArray
+
+Type: `Content[]`
 
 The array of content passed when creating the instance.
 
 #### database.init()
 
-Calls init() for all content.
+Calls init() to all content.
 
 #### database.clear()
 
-Calls clear() for all content.
+Calls clear() to all content.
 
 #### database.read()
 
-Calls read() for all content.
+Calls read() to all content.
 
 #### database.write()
 
-Calls write() for all content.
+Calls write() to all content.
 
 ### Collection
 
-#### new Collection(adapter: Adapter, primaryKeyField: string, indexedFields?: string[])
+#### new Collection(adapter, primaryKeyField, indexedFields?)
 
 Creates a collection instance.
 
-- adapter - Any adapter.
-- primaryKeyField - The field of the document used as the primary key. The
-  specified field must contain only primitive data types.
-- indexedFields (optional) - Indexed fields of the document. Should not contain
-  primaryKeyField.
+- adapter (`Adapter`) - Any adapter.
+- primaryKeyField (`keyof Document`) - The document field used as the primary
+  key. The specified field must contain only primitive data types.
+- indexedFields? (`(keyof Document)[]`) - Indexed document fields. Should not
+  contain primaryKeyField.
 
-#### collection.adapter - Adapter
+#### collection.adapter
+
+Type: `Adapter`
 
 The adapter passed when creating the instance.
 
-#### collection.primaryKeyField - string
+#### collection.primaryKeyField
+
+Type: `keyof Document`
 
 The primary key field passed when creating the instance.
 
-#### collection.indexedFields - string[]
+#### collection.indexedFields
+
+Type: `(keyof Document)[]`
 
 The indexed fields passed when creating the instance.
 
 #### collection.init()
 
+Complexity: `O(n)`
+
 Initializes the collection.
 
 #### collection.clear()
+
+Complexity: `O(1)`
 
 Clears the collection.
 
 #### collection.read()
 
+Complexity: `O(n)`
+
 Reads data through the collection adapter.
 
 #### collection.write()
 
+Complexity: `O(n)`
+
 Writes data through the collection adapter.
 
-#### collection.getDocuments(): Document[]
+#### collection.getDocuments()
 
-Gets the array of documents in the collection.
+Complexity: `O(1)`
 
-#### collection.setDocuments(documents: Document[]): void
+Return: `Document[]`
 
-Sets the array of documents in the collection.
+Gets the collection documents.
 
-#### collection.create(document: Document): void
+#### collection.setDocuments(documents)
+
+Complexity: `O(n)`
+
+documents: `Document[]`
+
+Sets the collection documents.
+
+#### collection.create(document)
+
+Complexity: `O(1)`
+
+document: `Document`
 
 Creates a document.
 
-Throws an error if a document with the same primary key already exists.
+Throws an error if a document with this primary key already exists.
 
-#### collection.findByIndexedField(field, value): Document | undefined
+#### collection.findByIndexedField(field, value):
 
-Searches for a document by an indexed field.
+Complexity: `O(1)`
 
-Throws an error if the parameter field was not specified in indexedFields when
+Return: `Document | undefined`
+
+field: `keyof Document`
+
+value: `Document[keyof Document]`
+
+Searches for a document by indexed field.
+
+Throws an error if the field parameter was not specified in indexedFields when
 creating the instance.
 
-#### collection.findByPrimaryKey(primaryKey: string): Document | undefined
+#### collection.findByPrimaryKey(primaryKey)
+
+Complexity: `O(1)`
+
+Return: `Document | undefined`
+
+primaryKey: `keyof Document`
 
 Searches for a document by primary key.
 
-#### collection.updateByPrimaryKey(primaryKey: string, document: Document): void
+#### collection.updateByPrimaryKey(primaryKey, document)
+
+Complexity: `O(1)`
+
+primaryKey: `keyof Document`
+
+document: `Document`
 
 Updates a document by primary key.
 
 Throws an error if a document with the primary key primaryKey does not exist.
 
-Throws an error when attempting to update the primary key of a document.
-Instead, delete the old document and create a new one.
+Throws an error when attempting to update a document's primary key. Instead,
+delete the old document and create a new one.
 
-#### collection.deleteByPrimaryKey(primaryKey: string | string[]): void
+#### collection.deleteByPrimaryKey(primaryKey)
 
-Deletes a document(s) by primary key.
+Complexity: `O(1)`
+
+primaryKey: `keyof Document`
+
+Deletes documents by primary key.
+
+Throws an error if a document with the primary key primaryKey does not exist.
 
 ### Single
 
-#### new Single(adapter: Adapter, defaultData: Data)
+#### new Single(adapter, defaultData)
 
 Creates a single instance.
 
-- adapter - Any adapter.
-- defaultData - Default data.
+- adapter (`Adapter`) - Any adapter.
+- defaultData (`Data`) - Default data.
 
-#### single.adapter - Adapter
+#### single.adapter
+
+Type: `Adapter`
 
 The adapter passed when creating the instance.
 
-#### single.defaultData - Data
+#### single.defaultData
+
+Type: `Data`
 
 The default data passed when creating the instance.
 
@@ -341,17 +405,21 @@ Reads data through the single adapter.
 
 Writes data through the single adapter.
 
-#### single.getData(): Data
+#### single.getData()
 
-Gets the single's data.
+Return: `Data`
 
-#### single.setData(data: Data): void
+Gets the single data.
 
-Sets the single's data.
+#### single.setData(data)
+
+data: `Data`
+
+Sets the single data.
 
 ## Primary Key Generation
 
-In the node environment:
+In node environment:
 
 ```typescript
 import crypto from 'node:crypto'
@@ -364,7 +432,7 @@ database.content.posts.create({
 })
 ```
 
-In the browser environment:
+In browser environment:
 
 ```typescript
 const uuid = crypto.randomUUID()
@@ -377,13 +445,13 @@ database.content.posts.create({
 
 ## Optimization
 
-When working with a large amount of data, you may encounter performance issues.
+When working with large amounts of data, you may encounter performance issues.
 This happens because each call to `write()` serializes data through
-`JSON.stringify`, so even if only one document is changed, the entire array must
-be converted to a string before writing.
+`JSON.stringify`, so even if only one document is changed, the JSON format must
+convert all documents to a string before writing.
 
-This can be mitigated by batching changes and performing `write()` at intervals
-and before exiting the application to avoid data loss:
+This can be mitigated by accumulating changes and performing `write()` at
+intervals and before exiting the application to avoid data loss:
 
 ```typescript
 const WRITE_INTERVAL = 60_000
@@ -405,23 +473,23 @@ window.addEventListener('beforeunload', () => {
 })
 ```
 
-Collections check for changes before writing. If no changes exist, writing does
-not occur. This means you can call `database.write()` at intervals without
+Collections check for changes before writing. If there are no changes, writing
+does not occur. This means you can call `database.write()` at intervals without
 worrying about unnecessary writes to collections.
 
 ## Comparison with lowdb
 
-- lowdb and vladikdb both use [steno](https://github.com/typicode/steno) for
+- Both lowdb and vladikdb use [steno](https://github.com/typicode/steno) for
   safe atomic file writing (single-threaded only).
-- vladikdb introduces a new entity Content, which defines the structure of
-  stored data and provides methods for efficient work with this data structure
-  (indexing, etc). lowdb does not handle efficient data operations, delegating
+- vladikdb introduces a new entity Content that defines the structure of stored
+  data and provides methods for efficient work with this data structure
+  (indexing, etc.). lowdb does not handle efficient data operations, delegating
   this responsibility to the user.
 - lowdb provides both synchronous and asynchronous adapters and database
-  instances, vladikdb provides synchronous and asynchronous adapters, but
+  instances, while vladikdb provides synchronous and asynchronous adapters, but
   Content is always asynchronous.
 - The built-in TextFile adapter in vladikdb recursively creates the directory if
-  it does not exist, whereas the lowdb adapter would throw an error.
+  it does not exist, whereas in lowdb this adapter would throw an error.
 - lowdb adapters are compatible with vladikdb adapters, and vladikdb has the
-  same set of built-in adapters as lowdb, except for the DataFile adapter, which
-  was removed as it seems unnecessary.
+  same set of built-in adapters as lowdb, except for the DataFile adapter which
+  was removed because it seems unnecessary.

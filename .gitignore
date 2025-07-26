@@ -17,8 +17,5 @@ npm-debug.log*
 /.vscode
 /.idea
 
-# husky
-/.husky/_
-
 # playground
 /playground

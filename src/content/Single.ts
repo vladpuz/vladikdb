@@ -4,7 +4,7 @@ export class Single<
   Data extends object,
 > implements Content<Data> {
   public adapter: Adapter<Data>
-  public defaultData: Data
+  public readonly defaultData: Data
 
   private data: Data
 
