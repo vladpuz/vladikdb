@@ -5,12 +5,12 @@ import { Writer } from 'steno'
 import type { Adapter } from '../../core/VladikDB.js'
 
 export class TextFile implements Adapter<string> {
-  private path: string
+  private filepath: string
   private writer: Writer
 
-  public constructor(path: string) {
-    this.path = path
-    this.writer = new Writer(path)
+  public constructor(filepath: string) {
+    this.filepath = filepath
+    this.writer = new Writer(filepath)
   }
 
   private isFileNotExistError(error: unknown): boolean {
@@ -21,7 +21,7 @@ export class TextFile implements Adapter<string> {
     let data: string | null = null
 
     try {
-      data = await fs.readFile(this.path, { encoding: 'utf-8' })
+      data = await fs.readFile(this.filepath, { encoding: 'utf-8' })
     } catch (error) {
       if (this.isFileNotExistError(error)) {
         return data
@@ -38,7 +38,7 @@ export class TextFile implements Adapter<string> {
       await this.writer.write(data)
     } catch (error) {
       if (this.isFileNotExistError(error)) {
-        const dirname = path.dirname(this.path)
+        const dirname = path.dirname(this.filepath)
         await fs.mkdir(dirname, { recursive: true })
         await this.writer.write(data)
         return

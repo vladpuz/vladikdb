@@ -13,7 +13,7 @@ Features:
 - Works in node and browser
 - Safe atomic file writing (single-threaded only)
 - Data storage in any format and location (JSON, YAML, HTTP, ...)
-- Works with any data structures (Single, Collection, Graph, ...)
+- Works with any data structures (Collection, Single, Graph, ...)
 
 ## Quick Start
 
@@ -50,8 +50,8 @@ const database = new VladikDB({
   posts: new Collection(adapter, 'id', ['userId']),
 })
 
-// Init
-await database.init()
+// Read
+await database.read()
 
 // Create
 database.content.posts.create({
@@ -82,17 +82,15 @@ database.content.posts.deleteByPrimaryKey(1)
 const posts = database.content.posts.getDocuments()
 
 // Change documents
-const changedPosts: Post[] = []
-
-for (const post of posts) {
-  changedPosts.push({
+const newPosts = [...posts].map((post) => {
+  return {
     ...post,
     title: 'changed title',
-  })
-}
+  }
+})
 
 // Set documents
-database.content.posts.setDocuments(changedPosts)
+database.content.posts.setDocuments(newPosts)
 
 // Write posts
 await database.content.posts.write()
@@ -109,7 +107,7 @@ The database provides two built-in content types:
 - Single (`object`) - designed for single objects, such as application
   configuration.
 
-Example usage of Single:
+Example of using Single:
 
 ```typescript
 import path from 'node:path'
@@ -123,12 +121,12 @@ interface Config {
   loglevel?: string
 }
 
-// For node
+// Node
 const databasePath = 'database'
 const databaseConfigPath = path.join(databasePath, 'config.json')
 const adapter = new JSONFile<Config>(databaseConfigPath)
 
-// For browser
+// Browser
 // const databaseConfigKey = 'config'
 // const adapter = new LocalStorage<Config>(databaseConfigKey)
 
@@ -136,7 +134,7 @@ const database = new VladikDB({
   config: new Single<Config>(adapter, {}),
 })
 
-await database.init()
+await database.read()
 
 database.content.config.setData({
   apiKey: '<NEW_API_KEY>',
@@ -148,9 +146,9 @@ console.log(data)
 await database.write()
 ```
 
-### Creating Custom Content Type
+### Creating a Custom Content Type
 
-You can create a new content type for optimal, fast work with any data
+You can create a new content type for optimal, fast operations with any data
 structure.
 
 To create a content type, you need to implement the Content interface:
@@ -158,10 +156,8 @@ To create a content type, you need to implement the Content interface:
 ```typescript
 interface Content<T> {
   adapter: Adapter<T>
-  init: () => Promise<void>
-  clear: () => Promise<void>
   read: () => Promise<void>
-  write: () => Promise<void>
+  write: (force?: boolean) => Promise<void>
 }
 ```
 
@@ -175,6 +171,7 @@ https://github.com/vladpuz/vladikdb/tree/main/src/content.
 For node:
 
 - TextFile
+- DataFile
 - JSONFile
 
 For browser:
@@ -183,7 +180,11 @@ For browser:
 - SessionStorage
 - LocalStorage
 
-### Creating Custom Adapter
+For any environment:
+
+- Memory
+
+### Creating a Custom Adapter
 
 You can create a new adapter for storing data in any format and location, such
 as YAML, remote storage, data encryption, etc.
@@ -199,6 +200,88 @@ interface Adapter<T> {
 
 As an example, refer to the source code of built-in adapters:
 https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
+
+## Primary Key Generation
+
+In the node environment:
+
+```typescript
+import crypto from 'node:crypto'
+
+const uuid = crypto.randomUUID()
+
+database.content.posts.create({
+  id: uuid,
+  title: 'vladikdb is awesome',
+})
+```
+
+In the browser environment:
+
+```typescript
+const uuid = crypto.randomUUID()
+
+database.content.posts.create({
+  id: uuid,
+  title: 'vladikdb is awesome',
+})
+```
+
+## Optimization
+
+When working with a large amount of data, you will face performance issues. This
+happens because each call to `write()` serializes data through `JSON.stringify`,
+thus even if only one document is changed, the JSON format must convert all
+documents to a string before writing.
+
+This can be mitigated by accumulating changes and performing `write()` at
+intervals and before exiting the application to avoid data loss:
+
+```typescript
+const WRITE_INTERVAL = 60 * 1000
+
+const intervalId = setInterval(() => {
+  database.write()
+}, WRITE_INTERVAL)
+
+// Node (Docker, pm2, ...)
+process.on('SIGINT', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+process.on('SIGTERM', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+
+// Browser
+window.addEventListener('beforeunload', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+```
+
+By default, the database content checks for changes before writing. If there are
+no changes, the write operation does not occur. This means you can call
+`database.write()` at intervals without worrying about unnecessary data writes.
+
+## Comparison with lowdb
+
+- lowdb and vladikdb use [steno](https://github.com/typicode/steno) for safe
+  atomic file writing (single-threaded only).
+- vladikdb introduces a new entity Content, which defines the structure of
+  stored data and provides methods for efficient work with this data structure
+  (indexing, etc.). lowdb does not handle efficient data operations, delegating
+  this responsibility to the user.
+- lowdb provides both synchronous and asynchronous adapters and database
+  instances, while vladikdb provides both synchronous and asynchronous adapters,
+  but Content and the database are always asynchronous.
+- The built-in TextFile adapter from vladikdb recursively creates the directory
+  if it does not exist, whereas the lowdb adapter will throw an error.
+- The built-in JSONFile adapter from vladikdb allows setting any JSON space
+  (indent), while lowdb always uses space 2.
+- lowdb adapters are compatible with vladikdb adapters, and vladikdb has the
+  same set of built-in adapters as lowdb.
 
 ## API
 
@@ -222,21 +305,15 @@ Type: `Content[]`
 
 The array of content passed when creating the instance.
 
-#### database.init()
-
-Calls init() to all content.
-
-#### database.clear()
-
-Calls clear() to all content.
-
 #### database.read()
 
-Calls read() to all content.
+Calls read() for all content.
 
-#### database.write()
+#### database.write(force?)
 
-Calls write() to all content.
+- force? (`boolean = false`) - Forces writing even if there are no data changes.
+
+Calls write() for all content.
 
 ### Collection
 
@@ -245,10 +322,10 @@ Calls write() to all content.
 Creates a collection instance.
 
 - adapter (`Adapter`) - Any adapter.
-- primaryKeyField (`keyof Document`) - The document field used as the primary
-  key. The specified field must contain only primitive data types.
-- indexedFields? (`(keyof Document)[]`) - Indexed document fields. Should not
-  contain primaryKeyField.
+- primaryKeyField (`keyof Document`) - The field of the document used as the
+  primary key. The specified field must contain only primitive data types.
+- indexedFields? (`(keyof Document)[]`) - Indexed fields of the document. Should
+  not include primaryKeyField.
 
 #### collection.adapter
 
@@ -268,27 +345,17 @@ Type: `(keyof Document)[]`
 
 The indexed fields passed when creating the instance.
 
-#### collection.init()
-
-Complexity: `O(n)`
-
-Initializes the collection.
-
-#### collection.clear()
-
-Complexity: `O(1)`
-
-Clears the collection.
-
 #### collection.read()
 
 Complexity: `O(n)`
 
 Reads data through the collection adapter.
 
-#### collection.write()
+#### collection.write(force?)
 
 Complexity: `O(n)`
+
+- force? (`boolean = false`) - Forces writing even if there are no data changes.
 
 Writes data through the collection adapter.
 
@@ -316,7 +383,7 @@ document: `Document`
 
 Creates a document.
 
-Throws an error if a document with this primary key already exists.
+Throws an error if a document with the same primary key already exists.
 
 #### collection.findByIndexedField(field, value):
 
@@ -328,9 +395,9 @@ field: `keyof Document`
 
 value: `Document[keyof Document]`
 
-Searches for a document by indexed field.
+Searches for a document by an indexed field.
 
-Throws an error if the field parameter was not specified in indexedFields when
+Throws an error if the parameter field was not specified in indexedFields when
 creating the instance.
 
 #### collection.findByPrimaryKey(primaryKey)
@@ -355,7 +422,7 @@ Updates a document by primary key.
 
 Throws an error if a document with the primary key primaryKey does not exist.
 
-Throws an error when attempting to update a document's primary key. Instead,
+Throws an error when attempting to update the document's primary key. Instead,
 delete the old document and create a new one.
 
 #### collection.deleteByPrimaryKey(primaryKey)
@@ -389,19 +456,13 @@ Type: `Data`
 
 The default data passed when creating the instance.
 
-#### single.init()
-
-Initializes the single.
-
-#### single.clear()
-
-Clears the single.
-
 #### single.read()
 
 Reads data through the single adapter.
 
-#### single.write()
+#### single.write(force?)
+
+- force? (`boolean = false`) - Forces writing even if there are no data changes.
 
 Writes data through the single adapter.
 
@@ -416,80 +477,3 @@ Gets the single data.
 data: `Data`
 
 Sets the single data.
-
-## Primary Key Generation
-
-In node environment:
-
-```typescript
-import crypto from 'node:crypto'
-
-const uuid = crypto.randomUUID()
-
-database.content.posts.create({
-  id: uuid,
-  title: 'vladikdb is awesome',
-})
-```
-
-In browser environment:
-
-```typescript
-const uuid = crypto.randomUUID()
-
-database.content.posts.create({
-  id: uuid,
-  title: 'vladikdb is awesome',
-})
-```
-
-## Optimization
-
-When working with large amounts of data, you may encounter performance issues.
-This happens because each call to `write()` serializes data through
-`JSON.stringify`, so even if only one document is changed, the JSON format must
-convert all documents to a string before writing.
-
-This can be mitigated by accumulating changes and performing `write()` at
-intervals and before exiting the application to avoid data loss:
-
-```typescript
-const WRITE_INTERVAL = 60_000
-
-const intervalId = setInterval(() => {
-  database.write()
-}, WRITE_INTERVAL)
-
-// For node (Docker, pm2, ...)
-process.on('SIGINT', () => {
-  clearInterval(intervalId)
-  database.write()
-})
-
-// For browser
-window.addEventListener('beforeunload', () => {
-  clearInterval(intervalId)
-  database.write()
-})
-```
-
-Collections check for changes before writing. If there are no changes, writing
-does not occur. This means you can call `database.write()` at intervals without
-worrying about unnecessary writes to collections.
-
-## Comparison with lowdb
-
-- Both lowdb and vladikdb use [steno](https://github.com/typicode/steno) for
-  safe atomic file writing (single-threaded only).
-- vladikdb introduces a new entity Content that defines the structure of stored
-  data and provides methods for efficient work with this data structure
-  (indexing, etc.). lowdb does not handle efficient data operations, delegating
-  this responsibility to the user.
-- lowdb provides both synchronous and asynchronous adapters and database
-  instances, while vladikdb provides synchronous and asynchronous adapters, but
-  Content is always asynchronous.
-- The built-in TextFile adapter in vladikdb recursively creates the directory if
-  it does not exist, whereas in lowdb this adapter would throw an error.
-- lowdb adapters are compatible with vladikdb adapters, and vladikdb has the
-  same set of built-in adapters as lowdb, except for the DataFile adapter which
-  was removed because it seems unnecessary.

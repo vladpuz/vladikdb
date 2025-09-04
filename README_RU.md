@@ -13,7 +13,7 @@
 - Работает в node и браузере
 - Безопасная атомарная запись файлов (только однопоток)
 - Хранение данных в любом формате и месте (JSON, YAML, HTTP, ...)
-- Работа с любыми структурами данных (Single, Collection, Graph, ...)
+- Работа с любыми структурами данных (Collection, Single, Graph, ...)
 
 ## Быстрый старт
 
@@ -50,8 +50,8 @@ const database = new VladikDB({
   posts: new Collection(adapter, 'id', ['userId']),
 })
 
-// Init
-await database.init()
+// Read
+await database.read()
 
 // Create
 database.content.posts.create({
@@ -82,17 +82,15 @@ database.content.posts.deleteByPrimaryKey(1)
 const posts = database.content.posts.getDocuments()
 
 // Change documents
-const changedPosts: Post[] = []
-
-for (const post of posts) {
-  changedPosts.push({
+const newPosts = [...posts].map((post) => {
+  return {
     ...post,
     title: 'changed title',
-  })
-}
+  }
+})
 
 // Set documents
-database.content.posts.setDocuments(changedPosts)
+database.content.posts.setDocuments(newPosts)
 
 // Write posts
 await database.content.posts.write()
@@ -124,12 +122,12 @@ interface Config {
   loglevel?: string
 }
 
-// For node
+// Node
 const databasePath = 'database'
 const databaseConfigPath = path.join(databasePath, 'config.json')
 const adapter = new JSONFile<Config>(databaseConfigPath)
 
-// For browser
+// Browser
 // const databaseConfigKey = 'config'
 // const adapter = new LocalStorage<Config>(databaseConfigKey)
 
@@ -137,7 +135,7 @@ const database = new VladikDB({
   config: new Single<Config>(adapter, {}),
 })
 
-await database.init()
+await database.read()
 
 database.content.config.setData({
   apiKey: '<NEW_API_KEY>',
@@ -159,10 +157,8 @@ await database.write()
 ```typescript
 interface Content<T> {
   adapter: Adapter<T>
-  init: () => Promise<void>
-  clear: () => Promise<void>
   read: () => Promise<void>
-  write: () => Promise<void>
+  write: (force?: boolean) => Promise<void>
 }
 ```
 
@@ -176,6 +172,7 @@ https://github.com/vladpuz/vladikdb/tree/main/src/content.
 Для node:
 
 - TextFile
+- DataFile
 - JSONFile
 
 Для браузера:
@@ -183,6 +180,10 @@ https://github.com/vladpuz/vladikdb/tree/main/src/content.
 - WebStorage
 - SessionStorage
 - LocalStorage
+
+Для любой среды:
+
+- Memory
 
 ### Создание собственного адаптера
 
@@ -200,6 +201,89 @@ interface Adapter<T> {
 
 В качестве примера обратитесь к исходному коду встроенных адаптеров:
 https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
+
+## Генерация первичных ключей
+
+В среде node:
+
+```typescript
+import crypto from 'node:crypto'
+
+const uuid = crypto.randomUUID()
+
+database.content.posts.create({
+  id: uuid,
+  title: 'vladikdb is awesome',
+})
+```
+
+В среде браузера:
+
+```typescript
+const uuid = crypto.randomUUID()
+
+database.content.posts.create({
+  id: uuid,
+  title: 'vladikdb is awesome',
+})
+```
+
+## Оптимизация
+
+При работе с большим количеством данных вы столкнетесь с проблемами
+производительности. Это происходит потому, что каждый вызов `write()`
+сериализует данные через `JSON.stringify`, таким образом даже при изменении
+всего одного документа, формат данных JSON вынужден преобразовать все документы
+в строку перед записью.
+
+Это можно смягчить если накапливать изменения и выполнять `write()` по интервалу
+и перед выходом из приложения, чтобы избежать потери данных:
+
+```typescript
+const WRITE_INTERVAL = 60 * 1000
+
+const intervalId = setInterval(() => {
+  database.write()
+}, WRITE_INTERVAL)
+
+// Node (Docker, pm2, ...)
+process.on('SIGINT', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+process.on('SIGTERM', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+
+// Browser
+window.addEventListener('beforeunload', () => {
+  clearInterval(intervalId)
+  database.write()
+})
+```
+
+По умолчанию контент базы данных перед записью проверяет есть ли изменения
+данных, если изменений нет, тогда записи не происходит. Это означает что можно
+вызывать `database.write()` по интервалу не беспокоясь о лишней записи данных.
+
+## Сравнение с lowdb
+
+- lowdb и vladikdb используют [steno](https://github.com/typicode/steno) для
+  безопасной атомарной записи файлов (только однопоток).
+- vladikdb вводит новую сущность Content, которая определяет структуру хранимых
+  данных и предоставляет методы для производительной работы с этой структурой
+  данных (индексация и тд). lowdb не отвечает за производительную работу с
+  данными перекладывая эту ответственность на пользователя.
+- lowdb предоставляет синхронные и асинхронные адаптеры и экземпляры бд,
+  vladikdb предоставляет синхронные и асинхронные адаптеры, но Content и бд
+  всегда асинхронные.
+- Встроенный адаптер TextFile из vladikdb рекурсивно создает директорию если ее
+  не существует, тогда как в lowdb этот адаптер выдаст ошибку.
+- Встроенный адаптер JSONFile из vladikdb позволяет установить любой json space
+  (indent), в lowdb space всегда 2.
+- Адаптеры lowdb совместимы с адаптерами vladikdb, а так же vladikdb имеет тот
+  же набор встроенных адаптеров как lowdb.
 
 ## API
 
@@ -223,19 +307,14 @@ Type: `Content[]`
 
 Массив контента переданного при создании экземпляра.
 
-#### database.init()
-
-Вызывает init() всему контенту.
-
-#### database.clear()
-
-Вызывает clear() всему контенту.
-
 #### database.read()
 
 Вызывает read() всему контенту.
 
-#### database.write()
+#### database.write(force?)
+
+- force? (`boolean = false`) - Заставляет произвести запись, даже если изменений
+  данных нет.
 
 Вызывает write() всему контенту.
 
@@ -270,27 +349,18 @@ Type: `(keyof Document)[]`
 
 Индексируемые поля переданные при создании экземпляра.
 
-#### collection.init()
-
-Complexity: `O(n)`
-
-Инициализирует коллекцию.
-
-#### collection.clear()
-
-Complexity: `O(1)`
-
-Очищает коллекцию.
-
 #### collection.read()
 
 Complexity: `O(n)`
 
 Читает данные через адаптер коллекции.
 
-#### collection.write()
+#### collection.write(force?)
 
 Complexity: `O(n)`
+
+- force? (`boolean = false`) - Заставляет произвести запись, даже если изменений
+  данных нет.
 
 Записывает данные через адаптер коллекции.
 
@@ -391,19 +461,14 @@ Type: `Data`
 
 Данные по умолчанию переданные при создании экземпляра.
 
-#### single.init()
-
-Инициализирует сингл.
-
-#### single.clear()
-
-Очищает сингл.
-
 #### single.read()
 
 Читает данные через адаптер сингла.
 
-#### single.write()
+#### single.write(force?)
+
+- force? (`boolean = false`) - Заставляет произвести запись, даже если изменений
+  данных нет.
 
 Записывает данные через адаптер сингла.
 
@@ -418,81 +483,3 @@ Return: `Data`
 data: `Data`
 
 Устанавливает данные сингла.
-
-## Генерация первичных ключей
-
-В среде node:
-
-```typescript
-import crypto from 'node:crypto'
-
-const uuid = crypto.randomUUID()
-
-database.content.posts.create({
-  id: uuid,
-  title: 'vladikdb is awesome',
-})
-```
-
-В среде браузера:
-
-```typescript
-const uuid = crypto.randomUUID()
-
-database.content.posts.create({
-  id: uuid,
-  title: 'vladikdb is awesome',
-})
-```
-
-## Оптимизация
-
-При работе с большим количеством данных вы столкнетесь с проблемами
-производительности. Это происходит потому, что каждый вызов `write()`
-сериализует данные через `JSON.stringify`, таким образом даже при изменении
-всего одного документа, формат данных JSON вынужден преобразовать все документы
-в строку перед записью.
-
-Это можно смягчить если накапливать изменения и выполнять `write()` по интервалу
-и перед выходом из приложения, чтобы избежать потери данных:
-
-```typescript
-const WRITE_INTERVAL = 60_000
-
-const intervalId = setInterval(() => {
-  database.write()
-}, WRITE_INTERVAL)
-
-// For node (Docker, pm2, ...)
-process.on('SIGINT', () => {
-  clearInterval(intervalId)
-  database.write()
-})
-
-// For browser
-window.addEventListener('beforeunload', () => {
-  clearInterval(intervalId)
-  database.write()
-})
-```
-
-Коллекции перед записью проверяют есть ли изменения, если изменений нет, тогда
-записи не происходит. Это означает что можно вызывать `database.write()` по
-интервалу не беспокоясь о лишней записи в коллекциях.
-
-## Сравнение с lowdb
-
-- lowdb и vladikdb используют [steno](https://github.com/typicode/steno) для
-  безопасной атомарной записи файлов (только однопоток).
-- vladikdb вводит новую сущность Content, которая определяет структуру хранимых
-  данных и предоставляет методы для производительной работы с этой структурой
-  данных (индексация и тд). lowdb не отвечает за производительную работу с
-  данными перекладывая эту ответственность на пользователя.
-- lowdb предоставляет синхронные и асинхронные адаптеры и экземпляры бд,
-  vladikdb предоставляет синхронные и асинхронные адаптеры, но Content всегда
-  асинхронный.
-- Встроенный адаптер TextFile из vladikdb рекурсивно создает директорию если ее
-  не существует, тогда как в lowdb этот адаптер выдаст ошибку.
-- Адаптеры lowdb совместимы с адаптерами vladikdb, а так же vladikdb имеет тот
-  же набор встроенных адаптеров как lowdb, кроме адаптера DataFile который был
-  удален потому, что кажется ненужным.

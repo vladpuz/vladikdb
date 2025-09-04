@@ -4,9 +4,9 @@ export class Collection<
   Document extends object,
   PrimaryKey extends keyof Document,
 > implements Content<Document[]> {
-  public adapter: Adapter<Document[]>
+  public readonly adapter: Adapter<Document[]>
   public readonly primaryKeyField: PrimaryKey
-  public readonly indexedFields: (keyof Document)[]
+  public readonly indexedFields: Array<keyof Document>
 
   private documentsMap = new Map<
     Document[PrimaryKey],
@@ -23,7 +23,7 @@ export class Collection<
   public constructor(
     adapter: Adapter<Document[]>,
     primaryKeyField: PrimaryKey,
-    indexedFields: (keyof Document)[] = [],
+    indexedFields: Array<keyof Document> = [],
   ) {
     const indexedFieldsSet = new Set(indexedFields)
 
@@ -64,24 +64,13 @@ export class Collection<
     }
   }
 
-  public async init(): Promise<void> {
-    await this.read()
-  }
-
-  public async clear(): Promise<void> {
-    this.documentsMap.clear()
-    this.indexedFieldsMap.clear()
-
-    await this.write()
-  }
-
   public async read(): Promise<void> {
     const documents = await this.adapter.read() ?? []
     this.syncIndexes(documents)
   }
 
-  public async write(): Promise<void> {
-    if (!this.hasChanges) {
+  public async write(force = false): Promise<void> {
+    if (!force && !this.hasChanges) {
       return
     }
 

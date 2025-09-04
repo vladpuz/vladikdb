@@ -1,9 +1,7 @@
 export interface Content<T> {
   adapter: Adapter<T>
-  init: () => Promise<void>
-  clear: () => Promise<void>
   read: () => Promise<void>
-  write: () => Promise<void>
+  write: (force?: boolean) => Promise<void>
 }
 
 export interface Adapter<T> {
@@ -13,24 +11,12 @@ export interface Adapter<T> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 class VladikDB<ContentObject extends Record<string, Content<any>>> {
-  public content: ContentObject
-  public contentArray: Content<unknown>[]
+  public readonly content: ContentObject
+  public readonly contentArray: Array<Content<unknown>>
 
   public constructor(content: ContentObject) {
     this.content = content
     this.contentArray = Object.values(content)
-  }
-
-  public async init(): Promise<void> {
-    await Promise.all(this.contentArray.map(async (content) => {
-      await content.init()
-    }))
-  }
-
-  public async clear(): Promise<void> {
-    await Promise.all(this.contentArray.map(async (content) => {
-      await content.clear()
-    }))
   }
 
   public async read(): Promise<void> {
@@ -39,9 +25,9 @@ class VladikDB<ContentObject extends Record<string, Content<any>>> {
     }))
   }
 
-  public async write(): Promise<void> {
+  public async write(force = false): Promise<void> {
     await Promise.all(this.contentArray.map(async (content) => {
-      await content.write()
+      await content.write(force)
     }))
   }
 }

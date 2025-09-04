@@ -3,10 +3,11 @@ import type { Adapter, Content } from '../core/VladikDB.js'
 export class Single<
   Data extends object,
 > implements Content<Data> {
-  public adapter: Adapter<Data>
+  public readonly adapter: Adapter<Data>
   public readonly defaultData: Data
 
   private data: Data
+  private hasChanges = false
 
   public constructor(adapter: Adapter<Data>, defaultData: Data) {
     this.adapter = adapter
@@ -15,20 +16,16 @@ export class Single<
     this.data = defaultData
   }
 
-  public async init(): Promise<void> {
-    await this.read()
-  }
-
-  public async clear(): Promise<void> {
-    this.data = this.defaultData
-    await this.write()
-  }
-
   public async read(): Promise<void> {
     this.data = await this.adapter.read() ?? this.defaultData
   }
 
-  public async write(): Promise<void> {
+  public async write(force = false): Promise<void> {
+    if (!force && !this.hasChanges) {
+      return
+    }
+
+    this.hasChanges = false
     await this.adapter.write(this.data)
   }
 
@@ -38,5 +35,6 @@ export class Single<
 
   public setData(data: Data): void {
     this.data = data
+    this.hasChanges = true
   }
 }
