@@ -4,7 +4,7 @@
 /node_modules
 
 # production
-/build
+/dist
 
 # misc
 .DS_Store
@@ -16,6 +16,9 @@ npm-debug.log*
 # editors
 /.vscode
 /.idea
+
+# hooks
+/.husky/_
 
 # playground
 /playground

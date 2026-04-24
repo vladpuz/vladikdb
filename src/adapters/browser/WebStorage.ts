@@ -1,16 +1,16 @@
-import type { Adapter } from '../../core/VladikDB.js'
+import type { Adapter, WritableData } from '../../core/Vladikdb.ts'
 
 export class WebStorage<T> implements Adapter<T> {
-  private key: string
-  private storage: Storage
+  #key: string
+  #storage: Storage
 
-  public constructor(key: string, storage: Storage) {
-    this.key = key
-    this.storage = storage
+  constructor(key: string, storage: Storage) {
+    this.#key = key
+    this.#storage = storage
   }
 
-  public read(): T | null {
-    const data = this.storage.getItem(this.key)
+  read(): T | null {
+    const data = this.#storage.getItem(this.#key)
 
     if (data === null) {
       return null
@@ -20,8 +20,21 @@ export class WebStorage<T> implements Adapter<T> {
     return JSON.parse(data) as T
   }
 
-  public write(data: T): void {
-    const string = JSON.stringify(data)
-    this.storage.setItem(this.key, string)
+  write(data: WritableData<T>): void {
+    if (typeof data === 'object' && data !== null && Symbol.iterator in data) {
+      const array = Array.isArray(data) ? data : [...data]
+      this.#storage.setItem(this.#key, JSON.stringify(array))
+      return
+    }
+
+    this.#storage.setItem(this.#key, JSON.stringify(data))
+  }
+
+  get isReading(): boolean {
+    return false
+  }
+
+  get isWriting(): boolean {
+    return false
   }
 }

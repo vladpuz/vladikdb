@@ -1,3 +1,3 @@
-export * from './adapters/browser/LocalStorage.js'
-export * from './adapters/browser/SessionStorage.js'
-export * from './adapters/browser/WebStorage.js'
+export * from './adapters/browser/LocalStorage.ts'
+export * from './adapters/browser/SessionStorage.ts'
+export * from './adapters/browser/WebStorage.ts'

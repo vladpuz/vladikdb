@@ -1,8 +1,9 @@
-import VladikDB from './core/VladikDB.js'
+import Vladikdb from './core/Vladikdb.ts'
 
-export * from './adapters/Memory.js'
-export * from './content/Collection.js'
-export * from './content/Single.js'
-export * from './core/VladikDB.js'
+export * from './adapters/Memory.ts'
+export * from './core/JSONObjectStream.ts'
+export * from './core/Vladikdb.ts'
+export * from './models/Collection.ts'
+export * from './models/Single.ts'
 
-export default VladikDB
+export default Vladikdb
