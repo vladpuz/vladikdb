@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-export class JSONObjectStream<
+export class JSONParserStream<
   T extends object,
 > extends TransformStream<string, T[]> {
   constructor() {
@@ -101,7 +101,9 @@ export class JSONObjectStream<
         }
 
         // Send objects array (for performance, this is an array)
-        controller.enqueue(objects)
+        if (objects.length > 0) {
+          controller.enqueue(objects)
+        }
       },
     })
   }

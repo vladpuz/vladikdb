@@ -1,3 +1,102 @@
+## 5.0.0
+
+### collection.updateByPrimaryKey
+
+The concept of document updating has changed from immutability to mutability.
+
+Before:
+
+```typescript
+const post = database.models.posts.findByPrimaryKey(1)
+
+database.models.posts.updateByPrimaryKey(1, {
+  ...post,
+  title: 'new title',
+})
+```
+
+After:
+
+```typescript
+database.models.posts.updateByPrimaryKey(1, (post) => {
+  post.title = 'new title'
+})
+```
+
+Motivation for this change:
+
+1. Mutability is significantly faster than immutability due to the absence of
+   the spread operator (`...`). Note that the time complexity of the spread
+   operator is `O(n)`.
+2. The updated method `collection.updateByPrimaryKey` allows updating documents
+   without their prior search via `collection.findByPrimaryKey`. Now, only the
+   primary key is needed for updating, document search is not required.
+
+> [!NOTE]  
+> Primary keys cannot be changed, attempts to change them are ignored. Instead,
+> delete the old document and create a new one.
+
+> [!WARNING]  
+> Never mutate documents outside the mutator callback of the
+> `.updateByPrimaryKey` method, as this will cause incorrect collection
+> behavior.
+
+> [!WARNING]  
+> The mutator callback must be a synchronous function; asynchronous functions or
+> `.then` inside a synchronous function may cause incorrect collection behavior.
+
+### collection.findByIndex
+
+The return type has changed from `Document[]` to `Set<Document>`.
+
+Indexes now work correctly, do not cause memory leaks, and are covered by tests.
+
+### single.data/update
+
+The concept of data updating has changed from immutability to mutability similar
+to the `collection.updateByPrimaryKey` method.
+
+Instead of the method `single.getData()` it is now the field `single.data`.
+Instead of the method `single.setData(data)` it is now the method
+`single.update(mutator)`.
+
+Before:
+
+```typescript
+const data = database.models.config.getData()
+console.log(data)
+
+database.models.config.setData({
+  ...data,
+  apiKey: 'NEW_API_KEY',
+})
+```
+
+After:
+
+```typescript
+const data = database.models.config.data
+console.log(data)
+
+database.models.config.update((data) => {
+  data.apiKey = 'NEW_API_KEY'
+})
+```
+
+### JSONParserStream
+
+- The class `JSONObjectStream` was renamed to `JSONParserStream`.
+- No longer sends an empty array as a chunk when iterating through the stream.
+
+### Other Changes
+
+- The methods `collection.write` and `single.write` now restore the
+  `hasChanges = true` state in case of a write adapter error to enable retrying
+  the write operation.
+- The methods `collection.deleteByPrimaryKey` and
+  `collection.updateByPrimaryKey` now return the found deleted or modified
+  document.
+
 ## 4.0.0
 
 This is a major update 🚀 aimed at supporting streaming for working with very

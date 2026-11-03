@@ -1,6 +1,6 @@
 # vladikdb
 
-> Simple and fast JSON database for node and browser
+> Simple and very fast JSON database for Node.js and browser
 
 Особенности:
 
@@ -38,19 +38,20 @@ interface Post {
   id: number
   userId: number
   title: string
+  body: string
 }
 
-// For node
+// Node.js
 const postsPath = path.join('database', 'posts.json')
 const postsAdapter = new JSONFile<Post[]>(postsPath)
 
-// For browser
+// Browser
 // const postsKey = 'posts'
 // const postsAdapter = new LocalStorage<Post[]>(postsKey)
 
-// userId - is an indexed key for example with findByIndex
 const database = new Vladikdb({
-  posts: new Collection(postsAdapter, 'id', ['userId']),
+  posts: new Collection(postsAdapter, 'id'),
+  // other models..
 })
 ```
 
@@ -60,47 +61,64 @@ const database = new Vladikdb({
 await database.read()
 ```
 
+> [!IMPORTANT]  
+> Необходимо инициализировать базу данных при запуске приложения, чтобы
+> существующие данные были загружены в память.
+
+> [!WARNING]  
+> Не изменяйте данные во время чтения, это может привести к потере изменений
+> потому, что ваши изменения будут перезаписаны прочитанными данными.
+
 Сохранение (запись) базы данных:
 
 ```typescript
-// Write all database (it's fast, checks for real changes)
 await database.write()
-
-// Write only posts
-await database.models.posts.write()
 ```
+
+> [!NOTE]  
+> Если изменений нет, тогда запись не будет производиться. Это проверяется
+> автоматически на уровне модели, чтобы избежать избыточной работы. Проверка
+> выполняется быстро без перебора всех документов, полагаясь на определение того
+> были ли ранее вызваны методы изменения данных.
 
 Создание документа:
 
 ```typescript
 database.models.posts.create({
   id: 1,
-  userId: 5, // Foreign key for example
+  userId: 5,
   title: 'vladikdb is awesome',
+  body: 'body',
 })
 ```
 
-Получение документа по id или индексу:
+Поиск документа по первичному ключу:
 
 ```typescript
-// Read by id
 const post = database.models.posts.findByPrimaryKey(1)
-console.log(post)
-
-// Read by userId, works only for indexed keys
-const posts = database.models.posts.findByIndex('userId', 5)
-console.log(posts)
+console.log(post) // {id: 1, userId: 5, title: 'vladikdb is awesome', body: 'body'}
 ```
 
 Обновление документа:
 
 ```typescript
-database.models.posts.updateByPrimaryKey(1, {
-  id: 1,
-  userId: 6,
-  title: 'new title',
+database.models.posts.updateByPrimaryKey(1, (post) => {
+  post.title = 'new title'
 })
 ```
+
+> [!NOTE]  
+> Первичные ключи нельзя изменять, попытки изменения игнорируются. Вместо этого
+> удалите старый документ и создайте новый.
+
+> [!WARNING]  
+> Никогда не мутируйте документы за пределами колбека мутатора метода
+> `.updateByPrimaryKey`, это приведет к некорректной работе коллекции.
+
+> [!WARNING]  
+> Колбек мутатор должен быть синхронной функцией, асинхронная функция или
+> `.then` внутри синхронной функции могут привести к некорректной работе
+> коллекции.
 
 Удаление документа:
 
@@ -118,22 +136,47 @@ database.models.posts.clear()
 
 ```typescript
 // This is an iterable object, not an array! Use a for..of loop to iterate.
-
 for (const post of database.models.posts) {
-  // Bad, do not mutate collection documents!!! Use methods.
-  post.title = 'changed title'
-
-  // Good, method is used.
-  database.models.posts.updateByPrimaryKey(post.id, {
-    ...post,
-    title: 'changed title',
+  database.models.posts.updateByPrimaryKey(post.id, (post) => {
+    post.title = 'changed title'
   })
 }
 ```
 
-Примечание: если вы выполняете запросы на получение выборки определенных
-документов через итерацию, кешируйте результат выборки потому, что итерация всех
-документов занимает много времени - `O(n)`.
+> [!TIP]  
+> Если вы выполняете запросы на получение выборки определенных документов через
+> итерацию, кешируйте результат выборки или используйте индексы вместо этого
+> потому, что итерация всех документов занимает много времени - `O(n)`.
+
+Индексация и поиск документов по индексу:
+
+Сначала необходимо добавить индекс для поля по которому будем искать.
+
+```diff
+const database = new Vladikdb({
+-  posts: new Collection(postsAdapter, 'id'),
++  posts: new Collection(postsAdapter, 'id', ['userId']),
+})
+```
+
+Затем выполняем поиск документов по индексу.
+
+```typescript
+const posts = database.models.posts.findByIndex('userId', 5)
+console.log(posts) // Set(1) {{…}}
+```
+
+В результате получаем множество всех найденных документов.
+
+> [!NOTE]  
+> Индексация нужна для быстрого поиска документов по определенному полю. Вместо
+> итерации по документам для выборки некоторых из них можно использовать индексы
+> для поиска, это намного быстрее - `O(1) vs O(n)`.
+
+> [!WARNING]  
+> Не добавляйте индексы для всех полей коллекции если в этом нет необходимости.
+> Индексация каждого дополнительного поля незначительно замедляет операции
+> создания, обновления, удаления документов.
 
 ### JSONFile опции
 
@@ -209,17 +252,21 @@ const adapter = new JSONFile<Post[]>('PATH', {
 
 ```typescript
 import path from 'node:path'
-
 import Vladikdb, { Single } from 'vladikdb'
 import { JSONFile } from 'vladikdb/node'
 // import { LocalStorage } from 'vladikdb/browser'
 
 interface Config {
-  apiKey?: string
-  loglevel?: string
+  apiKey: string
+  loglevel: string
 }
 
-// Node
+const defaultConfig: Config = {
+  apiKey: '',
+  loglevel: 'info',
+}
+
+// Node.js
 const configPath = path.join('database', 'config.json')
 const configAdapter = new JSONFile<Config>(configPath)
 
@@ -228,23 +275,34 @@ const configAdapter = new JSONFile<Config>(configPath)
 // const configAdapter = new LocalStorage<Config>(configKey)
 
 const database = new Vladikdb({
-  config: new Single<Config>(configAdapter, {}),
+  config: new Single<Config>(configAdapter, defaultConfig),
+  // other models..
 })
 
 await database.read()
 
-database.models.config.setData({
-  apiKey: '<NEW_API_KEY>',
+// Get
+console.log(database.models.config.data)
+
+// Update
+database.models.config.update((data) => {
+  data.apiKey = 'NEW_API_KEY'
+  data.loglevel = 'warn'
 })
 
-const data = database.models.config.getData()
-console.log(data)
-
-// Reset to default data
-// database.models.config.reset()
+// Reset
+database.models.config.reset()
 
 await database.write()
 ```
+
+> [!WARNING]  
+> Никогда не мутируйте данные за пределами колбека мутатора метода `.update`,
+> это приведет к некорректной работе сингла.
+
+> [!WARNING]  
+> Колбек мутатор должен быть синхронной функцией, асинхронная функция или
+> `.then` внутри синхронной функции могут привести к некорректной работе сингла.
 
 ### Создание пользовательской модели
 
@@ -269,7 +327,7 @@ https://github.com/vladpuz/vladikdb/tree/main/src/models.
 
 ### Список встроенных адаптеров
 
-Для node:
+Для Node.js:
 
 - TextFile
 - JSONFile
@@ -303,14 +361,14 @@ interface Adapter<T> {
 В качестве примера обратитесь к исходному коду встроенных адаптеров:
 https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
-#### JSONObjectStream
+#### JSONParserStream
 
 Чтобы ваш адаптер мог работать с большим количеством данным превышающим
 максимальную длину строки в JavaScript `512MB` (V8, x64), нужно использовать
 стриминг.
 
 Рекомендуется использовать встроенный высокопроизводительный трансформирующий
-стрим JSONObjectStream, который так же используется во встроенном адаптере
+стрим JSONParserStream, который так же используется во встроенном адаптере
 JSONFile. Обратитесь к исходному коду адаптера JSONFile для примера
 использования:
 https://github.com/vladpuz/vladikdb/blob/main/src/adapters/node/JSONFile.ts.
@@ -322,11 +380,11 @@ https://github.com/vladpuz/vladikdb/blob/main/src/adapters/node/JSONFile.ts.
 прочитать/записать данные целиком через JSON. Например, встроенный адаптер
 JSONFile предоставляет опцию `mode?: 'stream' | 'auto'`.
 
-Особенности JSONObjectStream:
+Особенности JSONParserStream:
 
 - Поддерживает трансформацию строк содержащих `object` или `object[]`
 - Поддерживает строковые чанки максимального размера `512MB` (V8, x64)
-- Может работать в node и браузере потому, что является веб стримом
+- Может работать в Node.js и браузере потому, что является веб стримом
 - Парсит через нативный `JSON.parse()`. Он итерирует строку, через стек
   определяет начало и конец каждого объекта, затем получает подстроку и передает
   её в `JSON.parse()`.
@@ -339,10 +397,10 @@ JSONFile предоставляет опцию `mode?: 'stream' | 'auto'`.
 Простой пример использования:
 
 ```typescript
-import { JSONObjectStream } from 'vladikdb'
+import { JSONParserStream } from 'vladikdb'
 
-const webStream = ReadableStream.from(['[{"id', '": 1}]']) // 2 chunks
-const objectStream = webStream.pipeThrough(new JSONObjectStream())
+const stream = ReadableStream.from(['[{"id', '": 1}]']) // 2 chunks
+const objectStream = stream.pipeThrough(new JSONParserStream())
 
 for await (const chunk of objectStream) {
   for (const object of chunk) {
@@ -353,7 +411,7 @@ for await (const chunk of objectStream) {
 
 ## Генерация первичных ключей
 
-В среде node или браузера:
+В среде Node.js или браузера:
 
 ```typescript
 const uuid = crypto.randomUUID()
@@ -382,7 +440,7 @@ const intervalId = setInterval(() => {
   database.write()
 }, WRITE_INTERVAL)
 
-// Node (Docker, pm2, ...)
+// Node.js (Docker, pm2, ...)
 process.on('SIGINT', () => {
   clearInterval(intervalId)
   database.write()
@@ -569,11 +627,11 @@ document: `Document`
 
 Выдает ошибку если документ с таким первичным ключом уже существует.
 
-#### collection.findByIndex(indexKey, indexValue):
+#### collection.findByIndex(indexKey, indexValue)
 
 Complexity: `O(1)`
 
-Return: `Document[]`
+Return: `Set<Document>`
 
 indexKey: `keyof Document`
 
@@ -594,28 +652,41 @@ primaryKey: `keyof Document`
 
 Поиск документа по первичному ключу.
 
-#### collection.updateByPrimaryKey(primaryKey, document)
+#### collection.updateByPrimaryKey(primaryKey, mutator)
 
 Complexity: `O(1)`
 
+Return: `Document`
+
 primaryKey: `keyof Document`
 
-document: `Document`
+mutator: `(document: Document) => void`
 
 Обновление документа по первичному ключу.
 
 Выдает ошибку если документа с первичным ключом primaryKey не существует.
 
-Выдает ошибку при попытке обновления первичного ключа документа. Вместо этого
-удалите старый документ и создайте новый.
+Изменение первичного ключа документа через колбек мутатор игнорируется (поле
+восстанавливает исходное значение). Если нужно изменить первичный ключ, удалите
+старый документ и создайте новый.
+
+Никогда не мутируйте документы за пределами колбека мутатора метода
+`.updateByPrimaryKey`, это приведет к некорректной работе коллекции (потери
+данных и утечки памяти).
+
+Колбек мутатор должен быть синхронной функцией, асинхронная функция или `.then`
+внутри синхронной функции могут привести к некорректной работе коллекции (утечки
+памяти).
 
 #### collection.deleteByPrimaryKey(primaryKey)
 
 Complexity: `O(1)`
 
+Return: `Document`
+
 primaryKey: `keyof Document`
 
-Удаление документа(ов) по первичному ключу.
+Удаление документа по первичному ключу.
 
 Выдает ошибку если документа с первичным ключом primaryKey не существует.
 
@@ -633,6 +704,12 @@ Complexity: `O(1)`
 
 - adapter (`Adapter`) - Любой адаптер.
 - defaultData (`Data`) - Данные по умолчанию.
+
+#### single.data
+
+Type: `Data`
+
+Данные сингла.
 
 #### single.adapter
 
@@ -657,17 +734,18 @@ Type: `boolean`
 
 Записывает данные через адаптер сингла.
 
-#### single.getData()
+#### single.update(mutator)
 
-Return: `Data`
+mutator: `(data: Data) => void`
 
-Получает данные сингла.
+Обновляет данные сингла.
 
-#### single.setData(data)
+Никогда не мутируйте данные за пределами колбека мутатора метода `.update`, это
+приведет к некорректной работе сингла (потери данных).
 
-data: `Data`
-
-Устанавливает данные сингла.
+Колбек мутатор должен быть синхронной функцией, асинхронная функция или `.then`
+внутри синхронной функции могут привести к некорректной работе сингла (потери
+данных).
 
 #### single.reset()
 

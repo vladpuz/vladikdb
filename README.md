@@ -1,21 +1,21 @@
 # vladikdb
 
-> Simple and fast JSON database for node and browser
+> Simple and very fast JSON database for Node.js and browser
 
 Features:
 
 - Simple installation via npm, no need to download anything extra
 - Minimalist API, only needed methods and nothing extra
 - Hash-indexing for primary keys and other fields when needed
-- Instant access and work with data through RAM
+- Instant access and operation with data through RAM
 - Ability to store data in any format and location (if create custom adapter),
   built-in adapters: JSONFile, LocalStorage, SessionStorage, Memory
 - Ability to work with models for different data structures (if create custom
   model), built-in models: Collection, Single
 - Streaming for reading/writing large data
 - Safe atomic file writing in Node.js
-- Inspired by [lowdb](https://github.com/typicode/lowdb), vladikdb is more
-  complete solution for high-performance data work
+- Inspired by [lowdb](https://github.com/typicode/lowdb), vladikdb is a more
+  complete solution for high-performance data operations
 
 ## Quick Start
 
@@ -37,19 +37,20 @@ interface Post {
   id: number
   userId: number
   title: string
+  body: string
 }
 
-// For node
+// Node.js
 const postsPath = path.join('database', 'posts.json')
 const postsAdapter = new JSONFile<Post[]>(postsPath)
 
-// For browser
+// Browser
 // const postsKey = 'posts'
 // const postsAdapter = new LocalStorage<Post[]>(postsKey)
 
-// userId - is an indexed key for example with findByIndex
 const database = new Vladikdb({
-  posts: new Collection(postsAdapter, 'id', ['userId']),
+  posts: new Collection(postsAdapter, 'id'),
+  // other models..
 })
 ```
 
@@ -59,47 +60,62 @@ Initialization (reading) database:
 await database.read()
 ```
 
+> [!IMPORTANT]  
+> Must initialize database on application startup to load existing data into
+> memory.
+
+> [!WARNING]  
+> Do not change data during reading, this may cause data loss because your
+> changes will be overwritten by read data.
+
 Saving (writing) database:
 
 ```typescript
-// Write all database (it's fast, checks for real changes)
 await database.write()
-
-// Write only posts
-await database.models.posts.write()
 ```
+
+> [!NOTE]  
+> If no changes, writing won't occur. This is checked automatically at model
+> level to avoid unnecessary work. Check is fast without iterating all
+> documents, relying on whether change methods were called previously.
 
 Creating document:
 
 ```typescript
 database.models.posts.create({
   id: 1,
-  userId: 5, // Foreign key for example
+  userId: 5,
   title: 'vladikdb is awesome',
+  body: 'body',
 })
 ```
 
-Getting document by id or index:
+Finding document by primary key:
 
 ```typescript
-// Read by id
 const post = database.models.posts.findByPrimaryKey(1)
-console.log(post)
-
-// Read by userId, works only for indexed keys
-const posts = database.models.posts.findByIndex('userId', 5)
-console.log(posts)
+console.log(post) // {id: 1, userId: 5, title: 'vladikdb is awesome', body: 'body'}
 ```
 
 Updating document:
 
 ```typescript
-database.models.posts.updateByPrimaryKey(1, {
-  id: 1,
-  userId: 6,
-  title: 'new title',
+database.models.posts.updateByPrimaryKey(1, (post) => {
+  post.title = 'new title'
 })
 ```
+
+> [!NOTE]  
+> Primary keys cannot be changed, attempts to change are ignored. Instead,
+> delete old document and create new one.
+
+> [!WARNING]  
+> Never mutate documents outside of `.updateByPrimaryKey` mutator callback, this
+> will cause collection malfunction.
+
+> [!WARNING]  
+> Mutator callback must be synchronous function, asynchronous function or
+> `.then` inside synchronous function may cause collection malfunction.
 
 Deleting document:
 
@@ -117,22 +133,46 @@ Iterating through documents:
 
 ```typescript
 // This is an iterable object, not an array! Use a for..of loop to iterate.
-
 for (const post of database.models.posts) {
-  // Bad, do not mutate collection documents!!! Use methods.
-  post.title = 'changed title'
-
-  // Good, method is used.
-  database.models.posts.updateByPrimaryKey(post.id, {
-    ...post,
-    title: 'changed title',
+  database.models.posts.updateByPrimaryKey(post.id, (post) => {
+    post.title = 'changed title'
   })
 }
 ```
 
-Note: if you perform queries to get specific documents through iteration, cache
-the result of the query because iterating through all documents takes a lot of
-time - `O(n)`.
+> [!TIP]  
+> If you perform queries to get specific documents through iteration, cache the
+> query result or use indexes instead because iterating all documents takes
+> time - `O(n)`.
+
+Indexing and searching documents by index:
+
+First, need to add index for the field we're searching by.
+
+```diff
+const database = new Vladikdb({
+-  posts: new Collection(postsAdapter, 'id'),
++  posts: new Collection(postsAdapter, 'id', ['userId']),
+})
+```
+
+Then perform search by index.
+
+```typescript
+const posts = database.models.posts.findByIndex('userId', 5)
+console.log(posts) // Set(1) {{…}}
+```
+
+Result is a set of all found documents.
+
+> [!NOTE]  
+> Indexing needed for fast document search by specific field. Instead of
+> iterating documents to select some, use indexes for search, which is much
+> faster - `O(1) vs O(n)`.
+
+> [!WARNING]  
+> Don't add indexes for all collection fields if not needed. Indexing each
+> additional field slightly slows down create, update, delete operations.
 
 ### JSONFile options
 
@@ -151,17 +191,15 @@ Type: `'stream' | 'auto'`
 
 Default: `'auto'`
 
-Sets the read and write file mode:
+Sets read/write mode:
 
-- `'auto'` (Default) - reads/writes the file completely, but in case of
-  RangeError error (if file is very large), reads/writes through streaming.
-  Recommended if you are sure that the file will not exceed the maximum string
-  size of your engine, or you don't know how large it will be. Maximum string
-  length `512MB` (V8, x64), depends on the engine.
-- `'stream'` - reads/writes the file through streaming. Recommended if you are
-  sure that the file will exceed the maximum string size of your engine. Setting
-  this value will improve performance in this case because trying to read/write
-  the whole file will not happen.
+- `'auto'` (Default) - reads/writes file entirely, but uses streaming if
+  RangeError occurs (if file is very large). Recommended if you're sure file
+  won't exceed engine's max string size or you don't know its size. Max string
+  length `512MB` (V8, x64), depends on engine.
+- `'stream'` - reads/writes file through streaming. Recommended if you're sure
+  file will exceed engine's max string size. Setting this value improves
+  performance in this case because whole file reading/writing won't happen.
 
 ```typescript
 import { JSONFile } from 'vladikdb/node'
@@ -181,8 +219,7 @@ Type: `number`
 Default: `0`
 
 Passed as third parameter in `JSON.stringify(value, replacer?, space?)`. Adds
-indentation and line breaks in the file, this takes additional memory, so
-default is 0.
+padding and line breaks in file, which uses additional memory, so default is 0.
 
 ```typescript
 import { JSONFile } from 'vladikdb/node'
@@ -199,26 +236,29 @@ const adapter = new JSONFile<Post[]>('PATH', {
 
 Database provides two built-in models:
 
-- Collection (`object[]`) - collection of documents designed for fast work with
-  documents by primary keys and fast search by indexes.
-- Single (`object`) - designed for single objects, for example application
-  configuration.
+- Collection (`object[]`) - collection of documents for fast operations by
+  primary keys and fast index search.
+- Single (`object`) - for single objects, like application configuration.
 
-Example usage of Single:
+Example of Single usage:
 
 ```typescript
 import path from 'node:path'
-
 import Vladikdb, { Single } from 'vladikdb'
 import { JSONFile } from 'vladikdb/node'
 // import { LocalStorage } from 'vladikdb/browser'
 
 interface Config {
-  apiKey?: string
-  loglevel?: string
+  apiKey: string
+  loglevel: string
 }
 
-// Node
+const defaultConfig: Config = {
+  apiKey: '',
+  loglevel: 'info',
+}
+
+// Node.js
 const configPath = path.join('database', 'config.json')
 const configAdapter = new JSONFile<Config>(configPath)
 
@@ -227,29 +267,40 @@ const configAdapter = new JSONFile<Config>(configPath)
 // const configAdapter = new LocalStorage<Config>(configKey)
 
 const database = new Vladikdb({
-  config: new Single<Config>(configAdapter, {}),
+  config: new Single<Config>(configAdapter, defaultConfig),
+  // other models..
 })
 
 await database.read()
 
-database.models.config.setData({
-  apiKey: '<NEW_API_KEY>',
+// Get
+console.log(database.models.config.data)
+
+// Update
+database.models.config.update((data) => {
+  data.apiKey = 'NEW_API_KEY'
+  data.loglevel = 'warn'
 })
 
-const data = database.models.config.getData()
-console.log(data)
-
-// Reset to default data
-// database.models.config.reset()
+// Reset
+database.models.config.reset()
 
 await database.write()
 ```
+
+> [!WARNING]  
+> Never mutate data outside of `.update` mutator callback, this will cause
+> single malfunction.
+
+> [!WARNING]  
+> Mutator callback must be synchronous function, asynchronous function or
+> `.then` inside synchronous function may cause single malfunction.
 
 ### Creating custom model
 
 You can create new model for optimal, fast work with any data structure.
 
-To create model you need to implement Model interface:
+To create model you need implement Model interface:
 
 ```typescript
 interface Model<T> {
@@ -260,14 +311,14 @@ interface Model<T> {
 }
 ```
 
-As an example refer to source code of built-in models:
+As example refer to source code of built-in models:
 https://github.com/vladpuz/vladikdb/tree/main/src/models.
 
 ## Adapters
 
 ### List of built-in adapters
 
-For node:
+For Node.js:
 
 - TextFile
 - JSONFile
@@ -284,10 +335,10 @@ For any environment:
 
 ### Creating custom adapter
 
-You can create adapter for storing data in any format and location, for example
-YAML, remote storage, data encryption and so on.
+You can create adapter for storing data in any format and location, like YAML,
+remote storage, data encryption, etc.
 
-To create adapter you need to implement Adapter interface:
+To create adapter you need implement Adapter interface:
 
 ```typescript
 interface Adapter<T> {
@@ -298,47 +349,46 @@ interface Adapter<T> {
 }
 ```
 
-As an example refer to source code of built-in adapters:
+As example refer to source code of built-in adapters:
 https://github.com/vladpuz/vladikdb/tree/main/src/adapters.
 
-#### JSONObjectStream
+#### JSONParserStream
 
-To make your adapter work with large data exceeding maximum string length in
-JavaScript `512MB` (V8, x64), you need to use streaming.
+To make your adapter work with large data exceeding JavaScript's max string
+length `512MB` (V8, x64), need to use streaming.
 
-It is recommended to use built-in high-performance transforming stream
-JSONObjectStream, which is also used in built-in adapter JSONFile. Refer to
-source code of adapter JSONFile for example usage:
+Recommended to use built-in high-performance transforming JSONParserStream,
+which is also used in built-in JSONFile adapter. Refer to JSONFile adapter
+source code for example usage:
 https://github.com/vladpuz/vladikdb/blob/main/src/adapters/node/JSONFile.ts.
 
-It is recommended to provide a way to choose adapter mode because streaming
-works a bit slower than processing data completely. Streaming is needed only if
-total data size exceeds `51 MB` (V8, x64) because this is maximum string length
-in JavaScript and in such case it is impossible to read/write data completely
-through JSON. For example, built-in adapter JSONFile provides option
-`mode?: 'stream' | 'auto'`.
+Recommended to provide way to choose adapter's work mode because streaming works
+a bit slower than full data processing. Streaming needed only if total data size
+exceeds `512MB` (V8, x64) because this is JavaScript's max string size and it's
+impossible to read/write data entirely through JSON. For example, built-in
+JSONFile adapter provides `mode?: 'stream' | 'auto'` option.
 
-Features of JSONObjectStream:
+Features of JSONParserStream:
 
 - Supports transformation of strings containing `object` or `object[]`
-- Supports string chunks with maximum size `512MB` (V8, x64)
-- Can work in node and browser because it is a web stream
-- Parses through native `JSON.parse()`. It iterates the string, through stack
-  determines the beginning and end of each object, then gets substring and
-  passes it to `JSON.parse()`.
-- Passes chunks of type `object[]` through the chain because passing each object
+- Supports string chunks of max size `512MB` (V8, x64)
+- Can work in Node.js and browser because it's a web stream
+- Parses through native `JSON.parse()`. It iterates string, through stack
+  determines start and end of each object, then gets substring and passes it to
+  `JSON.parse()`.
+- Passes chunks of type `object[]` through chain because sending each object
   separately works very slowly for large number of small objects. For example, 1
-  string chunk of large size `512MB` (V8, x64) may contain more than 16 million
-  small objects and for performance reasons they are accumulated and passed as
-  `object[]` further through the chain.
+  large string chunk `512MB` (V8, x64) may contain more than 16 million small
+  objects and for performance they are accumulated and passed as `object[]`
+  further through chain.
 
 Simple example of usage:
 
 ```typescript
-import { JSONObjectStream } from 'vladikdb'
+import { JSONParserStream } from 'vladikdb'
 
-const webStream = ReadableStream.from(['[{"id', '": 1}]']) // 2 chunks
-const objectStream = webStream.pipeThrough(new JSONObjectStream())
+const stream = ReadableStream.from(['[{"id', '": 1}]']) // 2 chunks
+const objectStream = stream.pipeThrough(new JSONParserStream())
 
 for await (const chunk of objectStream) {
   for (const object of chunk) {
@@ -347,9 +397,9 @@ for await (const chunk of objectStream) {
 }
 ```
 
-## Primary key generation
+## Primary Key Generation
 
-In node or browser environment:
+In Node.js or browser environment:
 
 ```typescript
 const uuid = crypto.randomUUID()
@@ -362,12 +412,12 @@ database.models.posts.create({
 
 ## Optimization
 
-When working with large amount of data you will face performance issues. This
-happens because each call to `write()` serializes data through `JSON.stringify`,
-thus even if only one document is changed, the JSON data format forces to
-convert all documents to string before writing.
+When working with large amount of data you'll face performance issues. This
+happens because each `write()` call serializes data through `JSON.stringify`,
+thus even changing one document forces JSON format to convert all documents to
+string before writing.
 
-This can be mitigated if accumulating changes and performing `write()`
+This can be mitigated by accumulating changes and performing `write()`
 periodically and on application exit to avoid data loss:
 
 ```typescript
@@ -377,7 +427,7 @@ const intervalId = setInterval(() => {
   database.write()
 }, WRITE_INTERVAL)
 
-// Node (Docker, pm2, ...)
+// Node.js (Docker, pm2, ...)
 process.on('SIGINT', () => {
   clearInterval(intervalId)
   database.write()
@@ -394,60 +444,59 @@ window.addEventListener('beforeunload', () => {
 })
 ```
 
-By default, database models check for data changes before writing, if there are
-no changes, writing does not happen. This means you can call `database.write()`
-periodically without worrying about unnecessary data writing.
+By default models check for data changes before writing, if no changes, writing
+doesn't occur. This means you can call `database.write()` periodically without
+worrying about unnecessary data writes.
 
 ## Limitations
 
-### Engine limitations
+### Engine Limitations
 
-- All JavaScript type and data structure limitations. For example, maximum
-  string length, maximum number, maximum array length and so on.
+- All JavaScript type and data structure limitations. For example, max string
+  length, max number, max array length, etc.
 
-### General limitations
+### General Limitations
 
 - Only JSON-serializable types and data structures are supported.
-- Data is fully loaded and stored in RAM. This allows very fast data work
-  without delays, but limits maximum data size to your RAM capacity.
-- Maximum size of one document `512MB` (V8, x64). This limitation is imposed by
-  maximum string length in JavaScript (may depend on engine).
-- Multithreading is not supported. Need to work with database only in one thread
-  of the application because each thread stores data independently and data is
-  not synchronized between threads. Working with database in multiple threads
-  will lead to data desynchronization and data loss on writing.
+- All data is fully loaded and stored in RAM. This allows very fast data
+  operations without delays, but limits maximum data size to your RAM capacity.
+- Max document size `512MB` (V8, x64). This limitation is based on JavaScript's
+  max string length (may depend on engine).
+- Multithreading is not supported. Must work with database only in one
+  application thread because each thread stores data independently and data
+  isn't synchronized between threads. Working with database in multiple threads
+  will cause data desynchronization and data loss on write.
 
-### Collection model limitations
+### Collection Model Limitations
 
-- Maximum number of documents in collection `2^24 = 16,777,216` (V8, x64). This
-  limitation is imposed by JavaScript Map implementation (may depend on engine).
+- Max number of documents in collection `2^24 = 16,777,216` (V8, x64). This
+  limitation is based on JavaScript's Map implementation (may depend on engine).
 
-### JSONFile adapter limitations
+### JSONFile Adapter Limitations
 
-- Maximum file size is limited only by the file system.
+- File size is limited only by file system.
 
-### LocalStorage, SessionStorage adapter limitations
+### LocalStorage/SessionStorage Adapter Limitations
 
-- Maximum storage size is limited by the browser.
+- Storage size is limited by browser.
 
 ## Comparison with lowdb
 
 - lowdb and vladikdb use [steno](https://github.com/typicode/steno) for safe
-  atomic file writing (only single-thread).
-- vladikdb supports streaming for writing data of unlimited size.
-- vladikdb introduces new entity Model that defines stored data structure and
-  provides methods for efficient work with this data structure (indexing and so
-  on). lowdb does not handle efficient data work, delegating this responsibility
-  to the user.
-- lowdb provides synchronous and asynchronous adapters and database instances,
-  vladikdb provides synchronous and asynchronous adapters, but Model and
-  database are always asynchronous.
-- Built-in TextFile adapter from vladikdb recursively creates directory if it
-  doesn't exist, whereas lowdb's adapter will throw an error.
-- Built-in JSONFile adapter from vladikdb allows setting any json space
-  (indent), while lowdb space is always 2.
-- lowdb adapters are compatible with vladikdb adapters, and vladikdb has the
-  same set of built-in adapters as lowdb (except DataFile).
+  atomic file writing (only single-threaded).
+- vladikdb supports streaming for writing unlimited size data.
+- vladikdb introduces new Model entity that defines data structure and provides
+  methods for efficient data operations (indexing, etc). lowdb doesn't handle
+  data operations, delegating this responsibility to user.
+- lowdb provides synchronous and asynchronous adapters and DB instances,
+  vladikdb provides synchronous and asynchronous adapters, but Model and DB are
+  always asynchronous.
+- vladikdb's built-in TextFile adapter recursively creates directory if it
+  doesn't exist, while lowdb's adapter would throw an error.
+- vladikdb's built-in JSONFile adapter allows setting any json space (indent),
+  while lowdb's space is always 2.
+- lowdb adapters are compatible with vladikdb adapters, and vladikdb has same
+  built-in adapters as lowdb (except DataFile).
 - DataFile adapter was removed.
 
 ## API
@@ -476,14 +525,13 @@ Array of models passed when creating instance.
 
 Calls read() to all models.
 
-It is unsafe to change model data during reading because they may be overwritten
-by read data and lost. It is recommended to call this method only once when
-starting the application.
+Modifying model data during reading is unsafe because it may be overwritten by
+read data and lost. Recommended to call this method only once on application
+startup.
 
 #### database.write(force?)
 
-- force? (`boolean = false`) - Forces writing, even if there are no data
-  changes.
+- force? (`boolean = false`) - Forces write even if no data changes.
 
 Calls write() to all models.
 
@@ -491,19 +539,19 @@ Calls write() to all models.
 
 Type: `boolean`
 
-If adapter of at least one model is reading, will be true, otherwise false.
+True if at least one model's adapter is reading, false otherwise.
 
 #### database.isWriting
 
 Type: `boolean`
 
-If adapter of at least one model is writing, will be true, otherwise false.
+True if at least one model's adapter is writing, false otherwise.
 
 #### database.hasChanges
 
 Type: `boolean`
 
-If at least one model has changes, will be true, otherwise false.
+True if at least one model has changes, false otherwise.
 
 ### Collection
 
@@ -512,10 +560,10 @@ If at least one model has changes, will be true, otherwise false.
 Creates collection instance.
 
 - adapter (`Adapter`) - Any adapter.
-- primaryKey (`keyof Document`) - Primary key of document. The specified key
-  must contain only primitive data types. The specified key must contain unique
-  value among other documents.
-- indexedKeys? (`Array<keyof Document>`) - Indexed keys of document. Should not
+- primaryKey (`keyof Document`) - Document's primary key. Specified key must
+  contain only primitive data types. Specified key must contain unique value
+  among other documents.
+- indexedKeys? (`Array<keyof Document>`) - Indexed document keys. Should not
   contain primaryKey.
 
 #### collection.adapter
@@ -528,7 +576,7 @@ Adapter passed when creating instance.
 
 Type: `boolean`
 
-If there are changes for writing will be true.
+True if changes for writing exist.
 
 #### collection.read()
 
@@ -540,8 +588,7 @@ Reads data through collection adapter.
 
 Complexity: `O(n)`
 
-- force? (`boolean = false`) - Forces writing, even if there are no data
-  changes.
+- force? (`boolean = false`) - Forces write even if no data changes.
 
 Writes data through collection adapter.
 
@@ -557,24 +604,23 @@ Complexity: `O(1)`
 
 document: `Document`
 
-Creating document.
+Creates document.
 
 Throws error if document with such primary key already exists.
 
-#### collection.findByIndex(indexKey, indexValue):
+#### collection.findByIndex(indexKey, indexValue)
 
 Complexity: `O(1)`
 
-Return: `Document[]`
+Return: `Set<Document>`
 
 indexKey: `keyof Document`
 
 indexValue: `Document[keyof Document]`
 
-Searching documents by index.
+Searches documents by index.
 
-Throws error if parameter indexKey was not specified in indexedKeys when
-creating instance.
+Throws error if indexKey wasn't specified in indexedKeys when creating instance.
 
 #### collection.findByPrimaryKey(primaryKey)
 
@@ -584,38 +630,49 @@ Return: `Document | undefined`
 
 primaryKey: `keyof Document`
 
-Searching document by primary key.
+Searches document by primary key.
 
-#### collection.updateByPrimaryKey(primaryKey, document)
+#### collection.updateByPrimaryKey(primaryKey, mutator)
 
 Complexity: `O(1)`
 
+Return: `Document`
+
 primaryKey: `keyof Document`
 
-document: `Document`
+mutator: `(document: Document) => void`
 
-Updating document by primary key.
+Updates document by primary key.
 
-Throws error if document with primary key primaryKey does not exist.
+Throws error if document with primary key primaryKey doesn't exist.
 
-Throws error when trying to update primary key of document. Instead, delete old
-document and create new one.
+Changing primary key through mutator callback is ignored (field restores
+original value). If need to change primary key, delete old document and create
+new one.
+
+Never mutate documents outside of `.updateByPrimaryKey` mutator callback, this
+will cause collection malfunction (data loss and memory leaks).
+
+Mutator callback must be synchronous function, asynchronous function or `.then`
+inside synchronous function may cause collection malfunction (memory leaks).
 
 #### collection.deleteByPrimaryKey(primaryKey)
 
 Complexity: `O(1)`
 
+Return: `Document`
+
 primaryKey: `keyof Document`
 
-Deleting document(s) by primary key.
+Deletes document by primary key.
 
-Throws error if document with primary key primaryKey does not exist.
+Throws error if document with primary key primaryKey doesn't exist.
 
 #### collection.size()
 
 Complexity: `O(1)`
 
-Returns current size of collection.
+Returns current collection size.
 
 ### Single
 
@@ -625,6 +682,12 @@ Creates single instance.
 
 - adapter (`Adapter`) - Any adapter.
 - defaultData (`Data`) - Default data.
+
+#### single.data
+
+Type: `Data`
+
+Single's data.
 
 #### single.adapter
 
@@ -636,7 +699,7 @@ Adapter passed when creating instance.
 
 Type: `boolean`
 
-If there are changes for writing will be true.
+True if changes for writing exist.
 
 #### single.read()
 
@@ -644,22 +707,21 @@ Reads data through single adapter.
 
 #### single.write(force?)
 
-- force? (`boolean = false`) - Forces writing, even if there are no data
-  changes.
+- force? (`boolean = false`) - Forces write even if no data changes.
 
 Writes data through single adapter.
 
-#### single.getData()
+#### single.update(mutator)
 
-Return: `Data`
+mutator: `(data: Data) => void`
 
-Gets single data.
+Updates single's data.
 
-#### single.setData(data)
+Never mutate data outside of `.update` mutator callback, this will cause single
+malfunction (data loss).
 
-data: `Data`
-
-Sets single data.
+Mutator callback must be synchronous function, asynchronous function or `.then`
+inside synchronous function may cause single malfunction (data loss).
 
 #### single.reset()
 

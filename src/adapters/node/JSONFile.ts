@@ -2,7 +2,7 @@ import { kStringMaxLength } from 'node:buffer'
 
 import type { Adapter, ReadableData, WritableData } from '../../core/Vladikdb.ts'
 
-import { JSONObjectStream } from '../../core/JSONObjectStream.ts'
+import { JSONParserStream } from '../../core/JSONParserStream.ts'
 import { TextFile, type TextFileOptions } from './TextFile.ts'
 
 export interface JSONFileOptions extends TextFileOptions {
@@ -90,7 +90,7 @@ export class JSONFile<T> implements Adapter<T> {
     if (data instanceof ReadableStream) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       return data.pipeThrough(
-        new JSONObjectStream(),
+        new JSONParserStream(),
       ) as unknown as ReadableData<T>
     }
 

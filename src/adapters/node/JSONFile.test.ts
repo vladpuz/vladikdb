@@ -24,11 +24,7 @@ suite('JSONFile', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const data2 = await adapter2.read() as AsyncIterable<unknown>
 
-    const chunks: unknown[] = []
-
-    for await (const chunk of data2) {
-      chunks.push(chunk)
-    }
+    const chunks: unknown[] = await Array.fromAsync(data2)
 
     assert.strictEqual(data1, null)
     assert.strictEqual(chunks.length, 0)
@@ -54,11 +50,7 @@ suite('JSONFile', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const data2 = await adapter2.read() as AsyncIterable<unknown>
 
-    const chunks: unknown[] = []
-
-    for await (const chunk of data2) {
-      chunks.push(chunk)
-    }
+    const chunks: unknown[] = await Array.fromAsync(data2)
 
     assert.deepStrictEqual(data1, [object])
     assert.deepStrictEqual(chunks, [[object]])
@@ -85,27 +77,14 @@ suite('JSONFile', () => {
     await adapter3.write({})
     await adapter4.write([])
 
-    const data1 = await adapter1.read()
-    const data2 = await adapter2.read()
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const data3 = await adapter3.read() as AsyncIterable<unknown>
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const data4 = await adapter4.read() as AsyncIterable<unknown>
+    const data1 = await fs.readFile(postsPath1, { encoding: 'utf-8' })
+    const data2 = await fs.readFile(postsPath2, { encoding: 'utf-8' })
+    const data3 = await fs.readFile(postsPath3, { encoding: 'utf-8' })
+    const data4 = await fs.readFile(postsPath4, { encoding: 'utf-8' })
 
-    const chunks1: unknown[] = []
-    const chunks2: unknown[] = []
-
-    for await (const chunk of data3) {
-      chunks1.push(chunk)
-    }
-
-    for await (const chunk of data4) {
-      chunks2.push(chunk)
-    }
-
-    assert.deepStrictEqual(data1, {})
-    assert.deepStrictEqual(data2, [])
-    assert.deepStrictEqual(chunks1, [[{}]])
-    assert.deepStrictEqual(chunks2, [[]])
+    assert.strictEqual(data1, '{}')
+    assert.strictEqual(data2, '[]')
+    assert.strictEqual(data3, '{}')
+    assert.strictEqual(data4, '[]')
   })
 })

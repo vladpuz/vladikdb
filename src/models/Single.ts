@@ -5,13 +5,14 @@ export class Single<
 > implements Model<Data> {
   #adapter: Adapter<Data>
   #defaultData: Data
-  #data: Data
   #hasChanges = false
+
+  data: Data
 
   constructor(adapter: Adapter<Data>, defaultData: Data) {
     this.#adapter = adapter
     this.#defaultData = defaultData
-    this.#data = defaultData
+    this.data = defaultData
   }
 
   async read(): Promise<void> {
@@ -21,13 +22,13 @@ export class Single<
       for await (const chunk of data) {
         for (const object of chunk) {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-          this.#data = object as Data
+          this.data = object as Data
         }
       }
       return
     }
 
-    this.#data = data
+    this.data = data
   }
 
   async write(force = false): Promise<void> {
@@ -36,28 +37,32 @@ export class Single<
     }
 
     this.#hasChanges = false
-    await this.#adapter.write(this.#data)
+
+    try {
+      await this.#adapter.write(this.data)
+    } catch (error) {
+      this.#hasChanges = true
+      throw error
+    }
   }
 
-  getData(): Data {
-    return this.#data
-  }
-
-  setData(data: Data): void {
-    if (this.#data === data) {
-      return
+  update(
+    mutator: (data: Data) => void,
+  ): void {
+    if (this.data === this.#defaultData) {
+      this.#defaultData = { ...this.#defaultData }
     }
 
-    this.#data = data
+    mutator(this.data)
     this.#hasChanges = true
   }
 
   reset(): void {
-    if (this.#data === this.#defaultData) {
+    if (this.data === this.#defaultData) {
       return
     }
 
-    this.#data = this.#defaultData
+    this.data = this.#defaultData
     this.#hasChanges = true
   }
 

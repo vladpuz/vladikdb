@@ -2,11 +2,11 @@ import assert from 'node:assert'
 import { ReadableStream } from 'node:stream/web'
 import test, { suite } from 'node:test'
 
-import { JSONObjectStream } from './JSONObjectStream.ts'
+import { JSONParserStream } from './JSONParserStream.ts'
 
 /* eslint @typescript-eslint/no-floating-promises: off */
 
-suite('JSONObjectStream', () => {
+suite('JSONParserStream', () => {
   const object = {
     key: 'value',
 
@@ -35,7 +35,9 @@ suite('JSONObjectStream', () => {
     ],
   }
 
-  const objectArray = Array.from({ length: 5 }).fill(object)
+  const objectArray = Array.from({ length: 5 }, () => {
+    return object
+  })
 
   test('Can transform single data (object)', async () => {
     // Chunk size: 1
@@ -110,11 +112,24 @@ suite('JSONObjectStream', () => {
     const chunks8 = await getChunks([JSON.stringify(emptyArray, null, 2)])
     assert.deepStrictEqual(chunks8, emptyArray)
   })
+
+  test('Empty chunks are not sent', async () => {
+    const stream = ReadableStream.from('[]')
+    const objectStream = stream.pipeThrough(new JSONParserStream())
+
+    let lastChunk: object[] | null = null
+
+    for await (const chunk of objectStream) {
+      lastChunk = chunk
+    }
+
+    assert.strictEqual(lastChunk, null)
+  })
 })
 
 async function getChunks(data: Iterable<string>): Promise<object[]> {
-  const webStream = ReadableStream.from(data)
-  const objectStream = webStream.pipeThrough(new JSONObjectStream())
+  const stream = ReadableStream.from(data)
+  const objectStream = stream.pipeThrough(new JSONParserStream())
 
   const chunks: object[] = []
 

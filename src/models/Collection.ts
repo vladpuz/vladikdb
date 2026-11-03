@@ -6,7 +6,6 @@ export class Collection<
 > implements Model<Document[]> {
   #adapter: Adapter<Document[]>
   #primaryKey: PrimaryKey
-  #indexedKeys: Array<keyof Document>
   #hasChanges = false
 
   #documentsMap = new Map<
@@ -16,7 +15,7 @@ export class Collection<
 
   #indexesMap = new Map<
     keyof Document,
-    Map<Document[keyof Document], Document[]>
+    Map<Document[keyof Document], Set<Document>>
   >()
 
   constructor(
@@ -24,27 +23,27 @@ export class Collection<
     primaryKey: PrimaryKey,
     indexedKeys: Array<keyof Document> = [],
   ) {
-    const indexedKeysSet = new Set(indexedKeys)
-
-    if (indexedKeysSet.has(primaryKey)) {
-      throw new Error(
-        `Primary key "${String(primaryKey)}" cannot be indexed`,
-      )
-    }
-
     this.#adapter = adapter
     this.#primaryKey = primaryKey
-    this.#indexedKeys = [...indexedKeysSet]
+
+    for (const indexedKey of indexedKeys) {
+      if (indexedKey === primaryKey) {
+        throw new Error(
+          `Primary key "${String(primaryKey)}" cannot be passed to indexedKeys, primary keys are indexed automatically`,
+        )
+      }
+
+      this.#indexesMap.set(indexedKey, new Map())
+    }
   }
 
   async #syncIndexes(
     documents: Iterable<Document[]> | AsyncIterable<Document[]>,
   ): Promise<void> {
     this.#documentsMap.clear()
-    this.#indexesMap.clear()
 
-    for (const indexKey of this.#indexedKeys) {
-      this.#indexesMap.set(indexKey, new Map())
+    for (const index of this.#indexesMap.values()) {
+      index.clear()
     }
 
     for await (const chunk of documents) {
@@ -52,16 +51,16 @@ export class Collection<
         const primaryKey = document[this.#primaryKey]
         this.#documentsMap.set(primaryKey, document)
 
-        for (const [indexKey, map] of this.#indexesMap) {
+        for (const [indexKey, index] of this.#indexesMap) {
           const indexValue = document[indexKey]
-          const documents = map.get(indexValue)
+          const documents = index.get(indexValue)
 
           if (!documents) {
-            map.set(indexValue, [document])
+            index.set(indexValue, new Set([document]))
             continue
           }
 
-          documents.push(document)
+          documents.add(document)
         }
       }
     }
@@ -81,7 +80,13 @@ export class Collection<
     }
 
     this.#hasChanges = false
-    await this.#adapter.write(this.#documentsMap.values())
+
+    try {
+      await this.#adapter.write(this.#documentsMap.values())
+    } catch (error) {
+      this.#hasChanges = true
+      throw error
+    }
   }
 
   [Symbol.iterator](): Iterator<Document> {
@@ -89,33 +94,41 @@ export class Collection<
   }
 
   clear(): void {
+    if (this.#documentsMap.size === 0) {
+      return
+    }
+
     this.#documentsMap.clear()
-    this.#indexesMap.clear()
+
+    for (const index of this.#indexesMap.values()) {
+      index.clear()
+    }
+
     this.#hasChanges = true
   }
 
   create(document: Document): void {
     const primaryKey = document[this.#primaryKey]
-    const currentDocument = this.#documentsMap.get(primaryKey)
+    const hasDocument = this.#documentsMap.has(primaryKey)
 
-    if (currentDocument) {
+    if (hasDocument) {
       throw new Error(
-        `Primary key "${String(primaryKey)}" already exists`,
+        `Document with primary key "${String(primaryKey)}" already exists, cannot be created`,
       )
     }
 
     this.#documentsMap.set(primaryKey, document)
 
-    for (const [indexKey, map] of this.#indexesMap) {
+    for (const [indexKey, index] of this.#indexesMap) {
       const indexValue = document[indexKey]
-      const documents = map.get(indexValue)
+      const documents = index.get(indexValue)
 
       if (!documents) {
-        map.set(indexValue, [document])
+        index.set(indexValue, new Set([document]))
         continue
       }
 
-      documents.push(document)
+      documents.add(document)
     }
 
     this.#hasChanges = true
@@ -124,16 +137,16 @@ export class Collection<
   findByIndex<Key extends keyof Document>(
     indexKey: Key,
     indexValue: Document[Key],
-  ): Document[] {
+  ): Set<Document> {
     const index = this.#indexesMap.get(indexKey)
 
     if (!index) {
       throw new Error(
-        `Index for key "${String(indexKey)}" not found`,
+        `Index for key "${String(indexKey)}" not found, pass this key to indexedKeys via constructor`,
       )
     }
 
-    return index.get(indexValue) ?? []
+    return index.get(indexValue) ?? new Set()
   }
 
   findByPrimaryKey(
@@ -144,64 +157,80 @@ export class Collection<
 
   updateByPrimaryKey(
     primaryKey: Document[PrimaryKey],
-    document: Document,
-  ): void {
-    const currentDocument = this.#documentsMap.get(primaryKey)
-
-    if (!currentDocument) {
-      throw new Error(
-        `Document with primary key "${String(primaryKey)}" not found`,
-      )
-    }
-
-    const newPrimaryKey = document[this.#primaryKey]
-
-    if (newPrimaryKey !== primaryKey) {
-      throw new Error(
-        `Primary key "${String(primaryKey)}" cannot be updated`,
-      )
-    }
-
-    for (const [indexKey, map] of this.#indexesMap) {
-      const indexValue = currentDocument[indexKey]
-      const newIndexValue = document[indexKey]
-
-      const documents = map.get(indexValue)
-
-      if (!documents) {
-        map.set(newIndexValue, [currentDocument])
-        continue
-      }
-
-      documents.push(currentDocument)
-
-      map.delete(indexValue)
-      map.set(newIndexValue, documents)
-    }
-
-    Object.assign(currentDocument, document)
-    this.#hasChanges = true
-  }
-
-  deleteByPrimaryKey(
-    primaryKey: Document[PrimaryKey],
-  ): void {
+    mutator: (document: Document) => void,
+  ): Document {
     const document = this.#documentsMap.get(primaryKey)
 
     if (!document) {
       throw new Error(
-        `Document with primary key "${String(primaryKey)}" not found`,
+        `Document with primary key "${String(primaryKey)}" not found, cannot be updated`,
+      )
+    }
+
+    for (const [indexKey, index] of this.#indexesMap) {
+      const indexValue = document[indexKey]
+      const documents = index.get(indexValue)
+
+      if (!documents) {
+        continue
+      }
+
+      documents.delete(document)
+
+      if (documents.size === 0) {
+        index.delete(indexValue)
+      }
+    }
+
+    mutator(document)
+    document[this.#primaryKey] = primaryKey
+
+    for (const [indexKey, index] of this.#indexesMap) {
+      const indexValue = document[indexKey]
+      const documents = index.get(indexValue)
+
+      if (!documents) {
+        index.set(indexValue, new Set([document]))
+        continue
+      }
+
+      documents.add(document)
+    }
+
+    this.#hasChanges = true
+    return document
+  }
+
+  deleteByPrimaryKey(
+    primaryKey: Document[PrimaryKey],
+  ): Document {
+    const document = this.#documentsMap.get(primaryKey)
+
+    if (!document) {
+      throw new Error(
+        `Document with primary key "${String(primaryKey)}" not found, cannot be deleted`,
       )
     }
 
     this.#documentsMap.delete(primaryKey)
 
-    for (const [indexKey, map] of this.#indexesMap) {
+    for (const [indexKey, index] of this.#indexesMap) {
       const indexValue = document[indexKey]
-      map.delete(indexValue)
+      const documents = index.get(indexValue)
+
+      if (!documents) {
+        continue
+      }
+
+      documents.delete(document)
+
+      if (documents.size === 0) {
+        index.delete(indexValue)
+      }
     }
 
     this.#hasChanges = true
+    return document
   }
 
   get adapter(): Adapter<Document[]> {
@@ -214,5 +243,16 @@ export class Collection<
 
   get size(): number {
     return this.#documentsMap.size
+  }
+
+  // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  get _indexesMap() {
+    const isTest = Boolean(process.env['NODE_TEST_CONTEXT'])
+
+    if (!isTest) {
+      throw new Error('collection._indexesMap is only for internal tests, don\'t use it')
+    }
+
+    return this.#indexesMap
   }
 }

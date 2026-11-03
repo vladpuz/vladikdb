@@ -28,12 +28,13 @@ export type WritableData<T> = T | (
 type AnyModel = Model<any>
 
 class Vladikdb<M extends Record<string, AnyModel>> {
-  #models: M
+  #models: Readonly<M>
   #modelsArray: readonly AnyModel[]
 
   constructor(models: M) {
-    this.#models = Object.freeze(models)
-    this.#modelsArray = Object.freeze(Object.values(models))
+    const modelsCopy = { ...models }
+    this.#models = Object.freeze(modelsCopy)
+    this.#modelsArray = Object.freeze(Object.values(modelsCopy))
   }
 
   async read(): Promise<void> {
@@ -66,7 +67,7 @@ class Vladikdb<M extends Record<string, AnyModel>> {
     })
   }
 
-  get models(): M {
+  get models(): Readonly<M> {
     return this.#models
   }
 

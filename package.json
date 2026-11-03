@@ -1,7 +1,7 @@
 {
   "name": "vladikdb",
-  "version": "4.0.0",
-  "description": "Simple and fast JSON database for node and browser",
+  "version": "5.0.0",
+  "description": "Simple and very fast JSON database for Node.js and browser",
   "keywords": [
     "database",
     "db",
@@ -53,22 +53,22 @@
     "lint": "eslint .",
     "prepack": "npm run build && npm run check && npm run test",
     "prepare": "husky",
-    "test": "node --test",
+    "test": "node --test --experimental-test-coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "steno": "^4.0.2"
   },
   "devDependencies": {
-    "@tsconfig/node-lts": "^24.0.0",
+    "@tsconfig/node-lts": "^24.0.1",
     "@tsconfig/node-ts": "^23.6.4",
     "@tsconfig/strictest": "^2.0.8",
-    "@types/node": "^25.6.0",
-    "eslint": "^10.2.1",
-    "eslint-config-vladpuz": "^4.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "eslint-config-vladpuz": "^4.4.1",
     "husky": "^9.1.7",
-    "prettier": "^3.8.3",
-    "prettier-config-vladpuz": "^3.0.0",
+    "prettier": "^3.9.10",
+    "prettier-config-vladpuz": "^3.0.2",
     "rimraf": "^6.1.3",
     "typescript": "^6.0.3"
   }
